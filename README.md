@@ -62,6 +62,24 @@ Client → Experience API (8080) → Process API (8082) → System API (8081) �
 
 ---
 
+## Proof of Work
+
+Screenshots below verify the claims made throughout this README — actual deployment, a live end-to-end API call, automated test results, and governance policy enforcement.
+
+### All four applications deployed simultaneously
+![Deployment status](docs/screenshots/deployment-status.png)
+
+### End-to-end request through the Experience tier (OAuth-authenticated, live Postgres data)
+![Experience API response](docs/screenshots/experience-api-response.png)
+
+### MUnit test suite — 44/44 passing
+![MUnit results](docs/screenshots/munit-results.png)
+
+### Rate-limiting policy applied via API Manager
+![API Manager policy](docs/screenshots/api-manager-policy.png)
+
+---
+
 ## Key Metrics Tracked
 
 | Area | Metrics |

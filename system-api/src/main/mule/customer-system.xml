@@ -38,7 +38,7 @@
                 user="${db.user}"
                 password="${db.password}"/>
 
-    </db:config>
+    </db:config> 
 
     <http:request-config name="Notification_Service_Request_config" doc:name="Notification Service Request Config">
         <http:request-connection host="${notification.host}" port="${notification.port}"/>
