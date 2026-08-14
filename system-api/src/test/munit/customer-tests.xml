@@ -1,0 +1,495 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+      http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <munit:config name="customer-tests-config"/>
+
+    <munit:test name="onboard-customer-invalid-email-validation" description="Malformed email should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "not-an-email"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="banking-customer-onboarding-apiFlow" doc:name="Call Onboard Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="onboard-customer-duplicate-conflict" description="Duplicate email/phone/PAN/Aadhaar should raise BANKING:CONFLICT">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Duplicate Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Duplicate Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{customer_id: 1}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "jane.doe@example.com", "phone": "9000000001", "pan": "ABCDE1234F", "aadhaar": "123456789012"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="banking-customer-onboarding-apiFlow" doc:name="Call Onboard Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:CONFLICT" doc:name="Catch Conflict Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:CONFLICT" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:CONFLICT')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="onboard-customer-invalid-dob-validation" description="Malformed date_of_birth should raise VALIDATION:VALIDATION">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Duplicate Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Duplicate Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "jane.doe2@example.com", "date_of_birth": "not-a-date"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="banking-customer-onboarding-apiFlow" doc:name="Call Onboard Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="onboard-customer-underage-validation" description="Customer under 18 years old should raise VALIDATION:VALIDATION">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Duplicate Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Duplicate Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Young", "last_name": "Person", "email": "young.person@example.com", "date_of_birth": "2015-01-01"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="banking-customer-onboarding-apiFlow" doc:name="Call Onboard Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="get-customer-invalid-id-format-validation" description="Non-numeric customerId should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: 'abc' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="get-customer-by-id-flow" doc:name="Call Get Customer By Id Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="get-customer-not-found" description="Valid numeric ID with no match should raise BANKING:CUSTOMER_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '9999' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="get-customer-by-id-flow" doc:name="Call Get Customer By Id Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:CUSTOMER_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:CUSTOMER_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:CUSTOMER_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="onboard-customer-valid-success" description="Valid customer onboarding should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Duplicate Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Duplicate Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Arjun", "last_name": "Test", "email": "arjun.test.valid@example.com", "phone": "9000000099", "date_of_birth": "2000-01-01", "pan": "ABCDE1234F", "aadhaar": "999900001111"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="banking-customer-onboarding-apiFlow" doc:name="Call Onboard Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="update-customer-invalid-id-validation" description="Non-numeric customerId should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "jane.doe@example.com", "phone": "9000000001", "address_line": "123 MG Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500001"}]' mediaType="application/java"/>
+                <munit:attributes value="#[{ uriParams: { customerId: 'abc' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="update-customer-flow" doc:name="Call Update Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="update-customer-missing-required-fields-validation" description="Missing required fields should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "email": "jane.doe@example.com"}]' mediaType="application/java"/>
+                <munit:attributes value="#[{ uriParams: { customerId: '1' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="update-customer-flow" doc:name="Call Update Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="update-customer-invalid-email-validation" description="Malformed email should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "not-an-email", "phone": "9000000001", "address_line": "123 MG Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500001"}]' mediaType="application/java"/>
+                <munit:attributes value="#[{ uriParams: { customerId: '1' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="update-customer-flow" doc:name="Call Update Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="update-customer-not-found" description="Updating a nonexistent customer should raise BANKING:CUSTOMER_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Customer Exists">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Customer Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "jane.doe@example.com", "phone": "9000000001", "address_line": "123 MG Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500001"}]' mediaType="application/java"/>
+                <munit:attributes value="#[{ uriParams: { customerId: '9999' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="update-customer-flow" doc:name="Call Update Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:CUSTOMER_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:CUSTOMER_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:CUSTOMER_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="update-customer-duplicate-email-or-phone-conflict" description="Updating to an email/phone already used by another customer should raise BANKING:CONFLICT">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Customer Exists">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Customer Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{customer_id: 1}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Duplicate Email Or Phone">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Duplicate Email Or Phone"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{customer_id: 2}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "taken@example.com", "phone": "9000000001", "address_line": "123 MG Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500001"}]' mediaType="application/java"/>
+                <munit:attributes value="#[{ uriParams: { customerId: '1' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="update-customer-flow" doc:name="Call Update Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:CONFLICT" doc:name="Catch Conflict Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:CONFLICT" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:CONFLICT')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="update-customer-valid-success" description="Valid update should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Customer Exists">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Customer Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{customer_id: 1}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Duplicate Email Or Phone">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Duplicate Email Or Phone"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update" doc:name="Mock Update Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Update Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"first_name": "Jane", "last_name": "Doe", "email": "jane.doe@example.com", "phone": "9000000001", "address_line": "123 MG Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500001"}]' mediaType="application/java"/>
+                <munit:attributes value="#[{ uriParams: { customerId: '1' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="update-customer-flow" doc:name="Call Update Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="delete-customer-invalid-id-validation" description="Non-numeric customerId should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: 'abc' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="delete-customer-flow" doc:name="Call Delete Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="delete-customer-not-found" description="Deleting a nonexistent customer (zero rows affected) should raise BANKING:CUSTOMER_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:delete" doc:name="Mock Delete Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Delete Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[0]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '9999' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="delete-customer-flow" doc:name="Call Delete Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:CUSTOMER_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:CUSTOMER_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:CUSTOMER_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="delete-customer-db-error-handled-gracefully" description="A DB error during delete should be caught by the flow's own error handler and produce a generic BANK-5000 failure envelope">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:delete" doc:name="Mock Delete Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Delete Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="DB:QUERY_EXECUTION"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '1' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="delete-customer-flow" doc:name="Call Delete Flow"/>
+                <error-handler>
+                    <on-error-continue type="ANY" doc:name="Catch Any Error">
+                        <set-variable variableName="caughtErrorType" value="#[error.errorType.identifier]" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.status]" is="#[MunitTools::equalTo('FAILED')]" doc:name="Assert Response Is Failure Envelope"/>
+            <munit-tools:assert-that expression="#[payload.errorCode]" is="#[MunitTools::equalTo('BANK-5000')]" doc:name="Assert Error Code Is BANK-5000"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="delete-customer-valid-success" description="Valid delete should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:delete" doc:name="Mock Delete Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Delete Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '1' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="delete-customer-flow" doc:name="Call Delete Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="get-all-customers-valid-success" description="Fetching all customers should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Customers">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Customers"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{customer_id: 1, first_name: 'Jane', last_name: 'Doe', email: 'jane.doe@example.com', phone: '9000000001', date_of_birth: |1990-01-01|, pan: 'ABCDE1234F', aadhaar: '999900001111', address_line: '123 MG Road', city: 'Hyderabad', state: 'Telangana', postal_code: '500001'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="get-all-customers-flow" doc:name="Call Get All Customers Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+      http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <munit:config name="kyc-tests-config"/>
+
+    <munit:test name="verify-kyc-valid-success" description="Valid KYC verify should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check KYC Exists">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check KYC Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{verification_id: 1}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update" doc:name="Mock Update KYC">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Update KYC"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "1", "pan_verified": true, "aadhaar_verified": true, "verification_status": "VERIFIED", "remarks": "All documents matched"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="verify-kyc-flow" doc:name="Call Verify KYC Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="verify-kyc-not-found" description="Verifying customer_id with no KYC record should raise BANKING:KYC_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check KYC Exists">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check KYC Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "9999", "pan_verified": true, "aadhaar_verified": true, "verification_status": "VERIFIED"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="verify-kyc-flow" doc:name="Call Verify KYC Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:KYC_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:KYC_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:KYC_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="verify-kyc-invalid-customer-id-validation" description="Non-numeric customer_id should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "abc", "pan_verified": true, "aadhaar_verified": true, "verification_status": "VERIFIED"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="verify-kyc-flow" doc:name="Call Verify KYC Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="verify-kyc-missing-required-field-validation" description="Missing aadhaar_verified should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "1", "pan_verified": true, "verification_status": "VERIFIED"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="verify-kyc-flow" doc:name="Call Verify KYC Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="verify-kyc-invalid-status-validation" description="verification_status outside PENDING/VERIFIED/FAILED should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "1", "pan_verified": true, "aadhaar_verified": true, "verification_status": "APPROVED"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="verify-kyc-flow" doc:name="Call Verify KYC Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="get-kyc-not-found" description="GET on customerId with no KYC record should raise BANKING:KYC_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch KYC">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch KYC"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '9999' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="get-kyc-by-customer-flow" doc:name="Call Get KYC Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:KYC_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:KYC_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:KYC_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

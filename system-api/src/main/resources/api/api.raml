@@ -1,0 +1,288 @@
+#%RAML 1.0
+title: Banking Customer Onboarding & KYC Integration Platform API
+version: v1
+baseUri: http://localhost:8080
+mediaType: application/json
+
+uses:
+  types: libraries/types.raml
+  traits: traits/traits.raml
+
+# ============================================================
+# CUSTOMER
+# ============================================================
+
+/customers:
+  get:
+    displayName: List Customers
+    description: Returns all customers in the system.
+    is: [traits.serverError]
+    responses:
+      200:
+        body:
+          application/json:
+            type: types.Customer[]
+
+  /onboard:
+    post:
+      displayName: Onboard Customer
+      description: |
+        Creates a new customer. first_name, last_name and email are
+        mandatory; email must be a valid format. date_of_birth is optional
+        but, if supplied, must be a valid date and the customer must be
+        at least 18 years old. Rejects if email, phone, pan or aadhaar
+        already belongs to an existing customer.
+      is: [traits.validationError, traits.conflictError, traits.serverError]
+      body:
+        application/json:
+          type: types.CustomerCreateRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.SuccessResponse
+
+  /{customerId}:
+    get:
+      displayName: Get Customer By ID
+      description: customerId must be a positive numeric value.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.Customer
+    put:
+      displayName: Update Customer
+      description: |
+        Full-replace update of email, phone, address_line, city, state and
+        postal_code. All six fields are required. Rejects if email or
+        phone would collide with a different existing customer.
+      is: [traits.validationError, traits.notFoundError, traits.conflictError, traits.serverError]
+      body:
+        application/json:
+          type: types.CustomerUpdateRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.SuccessResponse
+    delete:
+      displayName: Delete Customer
+      description: |
+        Deletes a customer. Fails with 409 if dependent account or KYC
+        records still reference this customer.
+      is: [traits.validationError, traits.notFoundError, traits.conflictError, traits.serverError]
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.SuccessResponse
+
+    /accounts:
+      get:
+        displayName: List Accounts For Customer
+        description: customerId must be a positive numeric value and must exist.
+        is: [traits.validationError, traits.notFoundError, traits.serverError]
+        responses:
+          200:
+            body:
+              application/json:
+                type: types.Account[]
+
+# ============================================================
+# ACCOUNTS
+# ============================================================
+
+/accounts:
+  post:
+    displayName: Create Account
+    description: |
+      Creates an account for an existing customer. customer_id,
+      account_type, balance and account_status are all required; balance
+      must be a non-negative number. account_type must be one of
+      SAVINGS, CURRENT; account_status must be one of ACTIVE, INACTIVE,
+      CLOSED.
+    is: [traits.validationError, traits.notFoundError, traits.serverError]
+    body:
+      application/json:
+        type: types.AccountCreateRequest
+    responses:
+      200:
+        body:
+          application/json:
+            type: types.SuccessResponse
+
+  /{accountNumber}:
+    get:
+      displayName: Get Account By Number
+      description: accountNumber must be a positive numeric value.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.Account
+    put:
+      displayName: Update Account
+      description: |
+        Full-replace update of customer_id, account_type, balance and
+        account_status. All four fields are required. account_type must
+        be one of SAVINGS, CURRENT; account_status must be one of
+        ACTIVE, INACTIVE, CLOSED.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      body:
+        application/json:
+          type: types.AccountUpdateRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.SuccessResponse
+    delete:
+      displayName: Delete Account
+      description: |
+        Deletes an account. Fails with 409 if dependent transaction
+        records still reference this account.
+      is: [traits.validationError, traits.notFoundError, traits.conflictError, traits.serverError]
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.SuccessResponse
+
+# ============================================================
+# KYC
+# ============================================================
+
+/kyc:
+  /{customerId}:
+    get:
+      displayName: Get KYC By Customer
+      description: customerId must be a positive numeric value.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.KYCVerification
+    put:
+      displayName: Update KYC
+      description: |
+        pan_verified, aadhaar_verified and verification_status are all
+        required. verification_status must be one of PENDING, VERIFIED,
+        FAILED.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      body:
+        application/json:
+          type: types.KYCUpdateRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.SuccessResponse
+
+  /verify:
+    post:
+      displayName: Verify KYC
+      description: |
+        Updates the verification outcome for an existing KYC record.
+        customer_id is required and must reference a customer that already
+        has a KYC record — this endpoint does not create one.
+        pan_verified, aadhaar_verified and verification_status are all
+        required. verification_status must be one of PENDING, VERIFIED,
+        FAILED.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      body:
+        application/json:
+          type: types.KYCVerifyRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.SuccessResponse
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+/dashboard:
+  /{customerId}:
+    get:
+      displayName: Customer Dashboard
+      description: |
+        Aggregated view of a customer's profile, accounts and KYC status.
+        customerId is required and must be a positive numeric value.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.DashboardResponse
+
+# ============================================================
+# TRANSACTIONS
+# ============================================================
+
+/transactions:
+  /deposit:
+    post:
+      displayName: Deposit
+      description: account_number and amount are required; amount must be greater than zero.
+      is: [traits.validationError, traits.notFoundError, traits.serverError]
+      body:
+        application/json:
+          type: types.DepositRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.DepositResponse
+
+  /withdraw:
+    post:
+      displayName: Withdraw
+      description: |
+        account_number and amount are required; amount must be greater
+        than zero and not exceed the account's current balance.
+      is: [traits.validationError, traits.notFoundError, traits.insufficientBalanceError, traits.serverError]
+      body:
+        application/json:
+          type: types.WithdrawRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.WithdrawResponse
+
+  /transfer:
+    post:
+      displayName: Transfer
+      description: |
+        from_account, to_account and amount are required; from_account and
+        to_account must differ; amount must be greater than zero and not
+        exceed the sender's current balance.
+      is: [traits.validationError, traits.notFoundError, traits.insufficientBalanceError, traits.serverError]
+      body:
+        application/json:
+          type: types.TransferRequest
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.TransferResponse
+
+  /{account_number}:
+    get:
+      displayName: Transaction History
+      description: |
+        Returns transaction history for an account, most recent first.
+        NOTE: unlike other {id}-style endpoints in this API, account_number
+        here is not explicitly format-validated before use — a non-numeric
+        value currently surfaces as a 500 (BANK-5000) rather than a 400.
+      is: [traits.notFoundError, traits.serverError]
+      responses:
+        200:
+          body:
+            application/json:
+              type: types.Transaction[]

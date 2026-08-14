@@ -1,0 +1,961 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- ================================= -->
+    <!-- DEPOSIT MONEY -->
+    <!-- POST /transactions/deposit -->
+    <!-- ================================= -->
+
+    <flow name="deposit-money-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/transactions/deposit"
+                allowedMethods="POST"
+                doc:name="Deposit Money">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Deposit request received for Account #[payload.account_number]"
+                doc:name="Logger"/>
+
+        <set-variable
+                variableName="request"
+                value="#[payload]"
+                doc:name="Store Request"/>
+
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[vars.request.account_number == null or vars.request.amount == null]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="account_number and amount are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Deposit Amount">
+            <when expression="#[vars.request.amount == null or vars.request.amount &lt;= 0]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="Deposit amount must be greater than zero"
+                        doc:name="Invalid Amount"/>
+            </when>
+        </choice>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Current Account">
+            <db:sql><![CDATA[
+SELECT
+    account_number,
+    balance
+FROM banking.accounts
+WHERE account_number = :accountNumber;
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[
+#[{
+    accountNumber: vars.request.account_number as Number {class: "java.lang.Long"}
+}]
+            ]]></db:input-parameters>
+        </db:select>
+
+        <choice doc:name="Check Account Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:ACCOUNT_NOT_FOUND"
+                        description="Deposit account not found"
+                        doc:name="Account Missing"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="account"
+                value="#[payload[0]]"
+                doc:name="Store Account"/>
+
+        <ee:transform doc:name="Calculate New Balance">
+            <ee:variables>
+                <ee:set-variable variableName="newBalance"><![CDATA[
+%dw 2.0
+output application/java
+---
+vars.account.balance + vars.request.amount
+                ]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <try transactionalAction="ALWAYS_BEGIN" doc:name="Deposit Transaction Scope">
+
+            <db:update
+                    config-ref="Database_Config"
+                    doc:name="Update Balance">
+                <db:sql><![CDATA[
+UPDATE banking.accounts
+SET balance = :balance
+WHERE account_number = :accountNumber;
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    balance: vars.newBalance,
+    accountNumber: vars.request.account_number as Number {class: "java.lang.Long"}
+}]
+                ]]></db:input-parameters>
+            </db:update>
+
+            <db:insert
+                    config-ref="Database_Config"
+                    doc:name="Insert Transaction">
+                <db:sql><![CDATA[
+INSERT INTO banking.transactions
+(
+    account_number,
+    transaction_type,
+    amount,
+    balance_after_transaction,
+    remarks
+)
+VALUES
+(
+    :account_number,
+    :transaction_type,
+    :amount,
+    :balance_after_transaction,
+    :remarks
+);
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    account_number: vars.request.account_number as Number {class: "java.lang.Long"},
+    transaction_type: "DEPOSIT",
+    amount: vars.request.amount,
+    balance_after_transaction: vars.newBalance,
+    remarks: vars.request.remarks
+}]
+                ]]></db:input-parameters>
+            </db:insert>
+
+        </try>
+
+        <ee:transform doc:name="Success Response">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "SUCCESS",
+    message: "Deposit completed successfully",
+    transactionType: "DEPOSIT",
+    accountNumber: vars.request.account_number,
+    depositedAmount: vars.request.amount,
+    newBalance: vars.newBalance,
+    remarks: vars.request.remarks
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <!--
+            NEW: fires only after "Deposit Transaction Scope" has already
+            committed. No amount/balance in the notification payload -
+            only event type, account number, outcome, timestamp,
+            correlation ID.
+        -->
+        <async doc:name="Async Deposit Notification">
+            <try doc:name="Notification Try">
+                <http:request
+                        method="POST"
+                        config-ref="Notification_Service_Request_config"
+                        path="${notification.path}"
+                        doc:name="Send Deposit Notification">
+                    <http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+    eventType: "DEPOSIT_COMPLETED",
+    entityId: vars.request.account_number as String,
+    outcome: "SUCCESS",
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: correlationId
+}]]]></http:body>
+                </http:request>
+                <error-handler>
+                    <on-error-continue enableNotifications="true" doc:name="Notification Failure Handler">
+                        <logger
+                                level="WARN"
+                                message="#[write({
+                                    correlationId: correlationId,
+                                    flow: 'deposit-money-flow',
+                                    notificationEvent: 'DEPOSIT_COMPLETED',
+                                    outcome: 'NOTIFICATION_FAILED',
+                                    errorType: (error.errorType.identifier default 'UNKNOWN')
+                                }, 'application/json')]"
+                                doc:name="Notification Failure Log"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </async>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'deposit-money-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+    <!-- ================================= -->
+    <!-- WITHDRAW MONEY -->
+    <!-- POST /transactions/withdraw -->
+    <!-- ================================= -->
+
+    <flow name="withdraw-money-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/transactions/withdraw"
+                allowedMethods="POST"
+                doc:name="Withdraw Money">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Withdraw request received for #[payload.account_number]"
+                doc:name="Logger"/>
+
+        <set-variable
+                variableName="request"
+                value="#[payload]"
+                doc:name="Store Request"/>
+
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[vars.request.account_number == null or vars.request.amount == null]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="account_number and amount are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Withdraw Amount">
+            <when expression="#[vars.request.amount == null or vars.request.amount &lt;= 0]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="Withdrawal amount must be greater than zero"
+                        doc:name="Invalid Amount"/>
+            </when>
+        </choice>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Account">
+            <db:sql><![CDATA[
+SELECT
+account_number,
+balance
+FROM banking.accounts
+WHERE account_number = :accountNumber;
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[
+#[{
+    accountNumber: vars.request.account_number as Number {class: "java.lang.Long"}
+}]
+            ]]></db:input-parameters>
+        </db:select>
+
+        <choice doc:name="Check Account Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:ACCOUNT_NOT_FOUND"
+                        description="Withdraw account not found"
+                        doc:name="Account Missing"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="account"
+                value="#[payload[0]]"
+                doc:name="Store Account"/>
+
+        <ee:transform doc:name="Calculate Remaining Balance">
+            <ee:variables>
+                <ee:set-variable variableName="newBalance"><![CDATA[
+%dw 2.0
+output application/java
+---
+vars.account.balance - vars.request.amount
+                ]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <choice doc:name="Check Balance">
+            <when expression="#[vars.newBalance &lt; 0]">
+                <raise-error
+                        type="BANKING:INSUFFICIENT_BALANCE"
+                        description="Insufficient balance for withdrawal"
+                        doc:name="Insufficient Balance"/>
+            </when>
+        </choice>
+
+        <try transactionalAction="ALWAYS_BEGIN" doc:name="Withdraw Transaction Scope">
+
+            <db:update
+                    config-ref="Database_Config"
+                    doc:name="Update Balance">
+                <db:sql><![CDATA[
+UPDATE banking.accounts
+SET balance = :balance
+WHERE account_number = :accountNumber;
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    balance: vars.newBalance,
+    accountNumber: vars.request.account_number as Number {class: "java.lang.Long"}
+}]
+                ]]></db:input-parameters>
+            </db:update>
+
+            <db:insert
+                    config-ref="Database_Config"
+                    doc:name="Insert Transaction">
+                <db:sql><![CDATA[
+INSERT INTO banking.transactions
+(
+account_number,
+transaction_type,
+amount,
+balance_after_transaction,
+remarks
+)
+VALUES
+(
+:account_number,
+:transaction_type,
+:amount,
+:balance_after_transaction,
+:remarks
+);
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    account_number: vars.request.account_number as Number {class: "java.lang.Long"},
+    transaction_type: "WITHDRAW",
+    amount: vars.request.amount,
+    balance_after_transaction: vars.newBalance,
+    remarks: vars.request.remarks default "Cash withdrawal"
+}]
+                ]]></db:input-parameters>
+            </db:insert>
+
+        </try>
+
+        <ee:transform doc:name="Success Response">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "SUCCESS",
+    message: "Withdrawal completed successfully",
+    transactionType: "WITHDRAW",
+    accountNumber: vars.request.account_number,
+    withdrawnAmount: vars.request.amount,
+    remainingBalance: vars.newBalance,
+    remarks: vars.request.remarks default "Cash withdrawal"
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <!--
+            NEW: fires only after "Withdraw Transaction Scope" has
+            already committed. Same minimal, non-sensitive payload shape
+            as deposit.
+        -->
+        <async doc:name="Async Withdraw Notification">
+            <try doc:name="Notification Try">
+                <http:request
+                        method="POST"
+                        config-ref="Notification_Service_Request_config"
+                        path="${notification.path}"
+                        doc:name="Send Withdraw Notification">
+                    <http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+    eventType: "WITHDRAW_COMPLETED",
+    entityId: vars.request.account_number as String,
+    outcome: "SUCCESS",
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: correlationId
+}]]]></http:body>
+                </http:request>
+                <error-handler>
+                    <on-error-continue enableNotifications="true" doc:name="Notification Failure Handler">
+                        <logger
+                                level="WARN"
+                                message="#[write({
+                                    correlationId: correlationId,
+                                    flow: 'withdraw-money-flow',
+                                    notificationEvent: 'WITHDRAW_COMPLETED',
+                                    outcome: 'NOTIFICATION_FAILED',
+                                    errorType: (error.errorType.identifier default 'UNKNOWN')
+                                }, 'application/json')]"
+                                doc:name="Notification Failure Log"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </async>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'withdraw-money-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+    <!-- ================================= -->
+    <!-- TRANSFER MONEY -->
+    <!-- POST /transactions/transfer -->
+    <!-- ================================= -->
+
+    <flow name="transfer-money-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/transactions/transfer"
+                allowedMethods="POST"
+                doc:name="Transfer Money">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Transfer request received from #[payload.from_account] to #[payload.to_account]"
+                doc:name="Logger"/>
+
+        <set-variable
+                variableName="request"
+                value="#[payload]"
+                doc:name="Store Request"/>
+
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[vars.request.from_account == null or vars.request.to_account == null or vars.request.amount == null]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="from_account, to_account and amount are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Transfer Amount">
+            <when expression="#[vars.request.amount == null or vars.request.amount &lt;= 0]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="Transfer amount must be greater than zero"
+                        doc:name="Invalid Amount"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Same Account">
+            <when expression="#[vars.request.from_account == vars.request.to_account]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="from_account and to_account must not be the same"
+                        doc:name="Same Account Error"/>
+            </when>
+        </choice>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Sender Account">
+            <db:sql><![CDATA[
+SELECT
+account_number,
+balance
+FROM banking.accounts
+WHERE account_number = :accountNumber;
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[
+#[{
+    accountNumber: vars.request.from_account as Number {class: "java.lang.Long"}
+}]
+            ]]></db:input-parameters>
+        </db:select>
+
+        <choice doc:name="Check Sender Account Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:ACCOUNT_NOT_FOUND"
+                        description="Sender account not found"
+                        doc:name="Sender Account Missing"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="senderAccount"
+                value="#[payload[0]]"
+                doc:name="Store Sender Account"/>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Receiver Account">
+            <db:sql><![CDATA[
+SELECT
+account_number,
+balance
+FROM banking.accounts
+WHERE account_number = :accountNumber;
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[
+#[{
+    accountNumber: vars.request.to_account as Number {class: "java.lang.Long"}
+}]
+            ]]></db:input-parameters>
+        </db:select>
+
+        <choice doc:name="Check Receiver Account Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:ACCOUNT_NOT_FOUND"
+                        description="Receiver account not found"
+                        doc:name="Receiver Account Missing"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="receiverAccount"
+                value="#[payload[0]]"
+                doc:name="Store Receiver Account"/>
+
+        <ee:transform doc:name="Calculate New Balances">
+            <ee:variables>
+                <ee:set-variable variableName="newSenderBalance"><![CDATA[
+%dw 2.0
+output application/java
+---
+vars.senderAccount.balance - vars.request.amount
+                ]]></ee:set-variable>
+                <ee:set-variable variableName="newReceiverBalance"><![CDATA[
+%dw 2.0
+output application/java
+---
+vars.receiverAccount.balance + vars.request.amount
+                ]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <choice doc:name="Check Balance">
+            <when expression="#[vars.newSenderBalance &lt; 0]">
+                <raise-error
+                        type="BANKING:INSUFFICIENT_BALANCE"
+                        description="Insufficient balance for transfer"
+                        doc:name="Insufficient Balance"/>
+            </when>
+        </choice>
+
+        <try transactionalAction="ALWAYS_BEGIN" doc:name="Transfer Transaction Scope">
+
+            <db:update
+                    config-ref="Database_Config"
+                    doc:name="Debit Sender">
+                <db:sql><![CDATA[
+UPDATE banking.accounts
+SET balance = :balance
+WHERE account_number = :accountNumber;
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    balance: vars.newSenderBalance,
+    accountNumber: vars.request.from_account as Number {class: "java.lang.Long"}
+}]
+                ]]></db:input-parameters>
+            </db:update>
+
+            <db:update
+                    config-ref="Database_Config"
+                    doc:name="Credit Receiver">
+                <db:sql><![CDATA[
+UPDATE banking.accounts
+SET balance = :balance
+WHERE account_number = :accountNumber;
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    balance: vars.newReceiverBalance,
+    accountNumber: vars.request.to_account as Number {class: "java.lang.Long"}
+}]
+                ]]></db:input-parameters>
+            </db:update>
+
+            <db:insert
+                    config-ref="Database_Config"
+                    doc:name="Insert Sender Transaction">
+                <db:sql><![CDATA[
+INSERT INTO banking.transactions
+(
+account_number,
+transaction_type,
+amount,
+balance_after_transaction,
+remarks
+)
+VALUES
+(
+:account_number,
+:transaction_type,
+:amount,
+:balance_after_transaction,
+:remarks
+);
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    account_number: vars.request.from_account as Number {class: "java.lang.Long"},
+    transaction_type: "TRANSFER",
+    amount: vars.request.amount,
+    balance_after_transaction: vars.newSenderBalance,
+    remarks: vars.request.remarks default ("Transferred to account " ++ (vars.request.to_account as String))
+}]
+                ]]></db:input-parameters>
+            </db:insert>
+
+            <db:insert
+                    config-ref="Database_Config"
+                    doc:name="Insert Receiver Transaction">
+                <db:sql><![CDATA[
+INSERT INTO banking.transactions
+(
+account_number,
+transaction_type,
+amount,
+balance_after_transaction,
+remarks
+)
+VALUES
+(
+:account_number,
+:transaction_type,
+:amount,
+:balance_after_transaction,
+:remarks
+);
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+#[{
+    account_number: vars.request.to_account as Number {class: "java.lang.Long"},
+    transaction_type: "TRANSFER_IN",
+    amount: vars.request.amount,
+    balance_after_transaction: vars.newReceiverBalance,
+    remarks: vars.request.remarks default ("Received from account " ++ (vars.request.from_account as String))
+}]
+                ]]></db:input-parameters>
+            </db:insert>
+
+        </try>
+
+        <ee:transform doc:name="Success Response">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "SUCCESS",
+    message: "Transfer completed successfully",
+    transactionType: "TRANSFER",
+    fromAccount: vars.request.from_account,
+    toAccount: vars.request.to_account,
+    transferredAmount: vars.request.amount,
+    senderRemainingBalance: vars.newSenderBalance,
+    receiverNewBalance: vars.newReceiverBalance,
+    remarks: vars.request.remarks default ("Transferred to account " ++ (vars.request.to_account as String))
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <!--
+            NEW: fires only after "Transfer Transaction Scope" has
+            already committed both legs of the transfer. entityId uses
+            the initiating (sender) account; amount and balances are
+            deliberately excluded from the notification payload.
+        -->
+        <async doc:name="Async Transfer Notification">
+            <try doc:name="Notification Try">
+                <http:request
+                        method="POST"
+                        config-ref="Notification_Service_Request_config"
+                        path="${notification.path}"
+                        doc:name="Send Transfer Notification">
+                    <http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+    eventType: "TRANSFER_COMPLETED",
+    entityId: vars.request.from_account as String,
+    outcome: "SUCCESS",
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: correlationId
+}]]]></http:body>
+                </http:request>
+                <error-handler>
+                    <on-error-continue enableNotifications="true" doc:name="Notification Failure Handler">
+                        <logger
+                                level="WARN"
+                                message="#[write({
+                                    correlationId: correlationId,
+                                    flow: 'transfer-money-flow',
+                                    notificationEvent: 'TRANSFER_COMPLETED',
+                                    outcome: 'NOTIFICATION_FAILED',
+                                    errorType: (error.errorType.identifier default 'UNKNOWN')
+                                }, 'application/json')]"
+                                doc:name="Notification Failure Log"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </async>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'transfer-money-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+    <!-- ================================= -->
+    <!-- TRANSACTION HISTORY -->
+    <!-- GET /transactions/{account_number} -->
+    <!-- ================================= -->
+
+<flow name="transaction-history-flow">
+
+    <http:listener
+            config-ref="HTTP_Listener_config"
+            path="/transactions/{account_number}"
+            allowedMethods="GET"
+            doc:name="Transaction History">
+        <http:response statusCode="#[vars.httpStatus default 200]">
+            <http:body>#[payload]</http:body>
+        </http:response>
+        <http:error-response statusCode="#[vars.httpStatus default 500]">
+            <http:body>#[payload]</http:body>
+        </http:error-response>
+    </http:listener>
+
+    <set-variable
+            variableName="startTime"
+            value="#[now()]"
+            doc:name="Start Timer"/>
+
+    <set-variable
+            variableName="accountNumber"
+            value="#[attributes.uriParams.account_number as Number {class: 'java.lang.Long'}]"
+            doc:name="Store Account Number"/>
+
+    <logger
+            level="INFO"
+            message="Fetching transactions for account #[vars.accountNumber]"
+            doc:name="Logger"/>
+
+    <db:select
+            config-ref="Database_Config"
+            doc:name="Check Account Exists">
+
+        <db:sql><![CDATA[
+SELECT account_number
+FROM banking.accounts
+WHERE account_number = :accountNumber;
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+#[{
+    accountNumber: vars.accountNumber
+}]
+        ]]></db:input-parameters>
+
+    </db:select>
+
+    <choice doc:name="Check Account Found">
+        <when expression="#[isEmpty(payload)]">
+            <raise-error
+                    type="BANKING:ACCOUNT_NOT_FOUND"
+                    description="Account not found"
+                    doc:name="Account Missing"/>
+        </when>
+    </choice>
+
+    <db:select
+            config-ref="Database_Config"
+            doc:name="Fetch Transactions">
+
+        <db:sql><![CDATA[
+SELECT
+transaction_id,
+transaction_type,
+amount,
+balance_after_transaction,
+remarks,
+created_at AS transaction_date
+
+FROM banking.transactions
+
+WHERE account_number = :accountNumber
+
+ORDER BY created_at DESC;
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+#[{
+    accountNumber: vars.accountNumber
+}]
+        ]]></db:input-parameters>
+
+    </db:select>
+
+    <logger
+            level="INFO"
+            message="#[write({
+                accountNumber: vars.accountNumber,
+                rowCount: sizeOf(payload default [])
+            }, 'application/json')]"
+            doc:name="Transaction Row Count"/>
+
+    <ee:transform doc:name="Transaction Response">
+
+        <ee:message>
+
+            <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+
+---
+payload map (item) -> {
+
+    transactionId: item.transaction_id,
+
+    transactionType: item.transaction_type,
+
+    amount: item.amount,
+
+    balanceAfterTransaction: item.balance_after_transaction,
+
+    remarks: item.remarks,
+
+    transactionDate: item.transaction_date as String {format:"yyyy-MM-dd'T'HH:mm:ss"}
+}
+            ]]></ee:set-payload>
+
+        </ee:message>
+
+    </ee:transform>
+
+    <logger
+            level="INFO"
+            message="#[write({
+                correlationId: correlationId,
+                flow: 'transaction-history-flow',
+                httpStatus: (vars.httpStatus default 200),
+                durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                outcome: 'SUCCESS'
+            }, 'application/json')]"
+            doc:name="Success Log"/>
+
+    <error-handler>
+        <on-error-propagate enableNotifications="true">
+            <flow-ref
+                    name="global-error-response-subflow"
+                    doc:name="Build Error Response"/>
+        </on-error-propagate>
+    </error-handler>
+
+</flow>
+
+</mule>

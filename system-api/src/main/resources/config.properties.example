@@ -1,0 +1,6 @@
+notification.host=localhost
+notification.port=8083
+notification.receiver.port=8083
+notification.path=/notifications/events
+db.user=your_postgres_username
+db.password=your_postgres_password

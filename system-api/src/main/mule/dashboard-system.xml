@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <flow name="customer-dashboard-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/dashboard/{customerId}"
+                allowedMethods="GET"
+                doc:name="Customer Dashboard">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <!--
+            NEW (Phase 9): capture start time immediately after the listener,
+            before any business logic, so durationMs on the success log
+            reflects the full flow execution time.
+        -->
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <set-variable
+                variableName="customerId"
+                value="#[attributes.uriParams.customerId]"
+                doc:name="Store Customer ID"/>
+
+        <logger
+                level="INFO"
+                message="Dashboard request received for customer #[vars.customerId]"
+                doc:name="Log Request"/>
+
+        <!--
+            ENHANCED: the original check only rejected a null/blank
+            customerId. It did not reject a non-numeric one (e.g.
+            "abc"), which would still reach "Fetch Customer" below and
+            fail with a raw PostgreSQL type error instead of a clean
+            VALIDATION error. The blank check is preserved; the numeric
+            format check is new.
+        -->
+        <choice doc:name="Validate Customer ID">
+            <when expression="#[vars.customerId == null or isBlank(vars.customerId) or not ((vars.customerId as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customerId is required and must be a positive numeric value"
+                        doc:name="Invalid Customer ID"/>
+            </when>
+        </choice>
+
+        <!-- ================================= -->
+        <!-- FETCH CUSTOMER -->
+        <!-- ================================= -->
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Customer">
+
+            <db:sql><![CDATA[
+SELECT
+customer_id,
+first_name,
+last_name,
+email,
+phone,
+date_of_birth,
+pan,
+aadhaar,
+address_line,
+city,
+state,
+postal_code
+FROM banking.customers
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.customerId
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <choice doc:name="Check Customer Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:CUSTOMER_NOT_FOUND"
+                        description="Customer not found"
+                        doc:name="Customer Missing"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="customer"
+                value="#[payload[0]]"
+                doc:name="Store Customer"/>
+
+        <logger
+                level="INFO"
+                message="Customer #[vars.customerId] found. Fetching accounts and KYC."
+                doc:name="Log Customer Found"/>
+
+        <!-- ================================= -->
+        <!-- FETCH CUSTOMER ACCOUNTS -->
+        <!-- ================================= -->
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Accounts">
+
+            <db:sql><![CDATA[
+SELECT
+account_number,
+customer_id,
+account_type,
+balance,
+account_status,
+created_at
+FROM banking.accounts
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.customerId
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <set-variable
+                variableName="accounts"
+                value="#[payload]"
+                doc:name="Store Accounts"/>
+
+        <logger
+                level="INFO"
+                message="Found #[sizeOf(vars.accounts)] account(s) for customer #[vars.customerId]"
+                doc:name="Log Account Count"/>
+
+        <!-- ================================= -->
+        <!-- FETCH CUSTOMER KYC -->
+        <!-- ================================= -->
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch KYC">
+
+            <db:sql><![CDATA[
+SELECT
+verification_id,
+customer_id,
+pan_verified,
+aadhaar_verified,
+verification_status,
+remarks,
+verified_at,
+created_at
+FROM banking.kyc_verifications
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.customerId
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <set-variable
+                variableName="kyc"
+                value="#[if (isEmpty(payload)) null else payload[0]]"
+                doc:name="Store KYC"/>
+
+        <!-- ================================= -->
+        <!-- BUILD DASHBOARD RESPONSE -->
+        <!-- ================================= -->
+        <ee:transform doc:name="Build Customer Dashboard">
+
+            <ee:message>
+
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+
+var repeatX = (n) -> (1 to n) map "X" joinBy ""
+
+var maskPan = (pan) ->
+    if (pan == null or isBlank(pan)) null
+    else if (sizeOf(pan) <= 4) pan
+    else repeatX(sizeOf(pan) - 4) ++ pan[-4 to -1]
+
+var maskAadhaar = (aadhaar) ->
+    if (aadhaar == null or isBlank(aadhaar)) null
+    else if (sizeOf(aadhaar) <= 4) aadhaar
+    else "XXXX XXXX " ++ aadhaar[-4 to -1]
+
+var formatTs = (ts) ->
+    if (ts == null) null
+    else ts as String {format: "yyyy-MM-dd'T'HH:mm:ss"}
+
+var activeAccounts = sizeOf(vars.accounts filter ($.account_status == "ACTIVE"))
+var totalBalance = sum(vars.accounts map (($.balance as Number) default 0))
+---
+{
+    status: "SUCCESS",
+    customer: {
+        customerId: vars.customer.customer_id,
+        firstName: vars.customer.first_name,
+        lastName: vars.customer.last_name,
+        email: vars.customer.email,
+        phone: vars.customer.phone,
+        pan: maskPan(vars.customer.pan),
+        aadhaar: maskAadhaar(vars.customer.aadhaar),
+        city: vars.customer.city,
+        state: vars.customer.state
+    },
+    accountSummary: {
+        totalAccounts: sizeOf(vars.accounts),
+        activeAccounts: activeAccounts,
+        totalBalance: totalBalance
+    },
+    accounts: vars.accounts map (acc) -> {
+        accountNumber: acc.account_number,
+        accountType: acc.account_type,
+        balance: acc.balance,
+        status: acc.account_status,
+        createdAt: formatTs(acc.created_at)
+    },
+    kyc: if (vars.kyc == null) {
+        verificationStatus: "NOT_AVAILABLE",
+        panVerified: false,
+        aadhaarVerified: false
+    } else {
+        verificationStatus: vars.kyc.verification_status,
+        panVerified: vars.kyc.pan_verified,
+        aadhaarVerified: vars.kyc.aadhaar_verified,
+        remarks: vars.kyc.remarks,
+        verifiedAt: formatTs(vars.kyc.verified_at)
+    }
+}
+                ]]></ee:set-payload>
+
+            </ee:message>
+
+        </ee:transform>
+
+        <logger
+                level="INFO"
+                message="Dashboard successfully generated for customer #[vars.customerId]"
+                doc:name="Log Success"/>
+
+        <!--
+            NEW (Phase 9): structured success log, placed right before the
+            error-handler so it only runs on the successful path. Kept
+            separate from the existing "Log Success" human-readable line
+            above - this one is the machine-parseable, correlatable record.
+        -->
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'customer-dashboard-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+</mule>

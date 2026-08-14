@@ -1,0 +1,524 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+
+    <!-- ============================= -->
+    <!-- PHASE 5 : GET KYC BY CUSTOMER -->
+    <!-- GET /kyc/{customerId} -->
+    <!-- ============================= -->
+
+    <flow name="get-kyc-by-customer-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/kyc/{customerId}"
+                allowedMethods="GET"
+                doc:name="Get KYC By Customer">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Fetching KYC for Customer #[attributes.uriParams.customerId]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Customer Id Format">
+            <when expression="#[not ((attributes.uriParams.customerId as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customerId must be a positive numeric value"
+                        doc:name="Invalid Customer Id"/>
+            </when>
+        </choice>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch KYC">
+
+            <db:sql><![CDATA[
+SELECT
+verification_id,
+customer_id,
+pan_verified,
+aadhaar_verified,
+verification_status,
+remarks,
+verified_at,
+created_at
+FROM banking.kyc_verifications
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: attributes.uriParams.customerId
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <choice doc:name="Check KYC Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:KYC_NOT_FOUND"
+                        description="KYC record not found"
+                        doc:name="KYC Missing"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Transform Response">
+
+            <ee:message>
+
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+payload[0]
+                ]]></ee:set-payload>
+
+            </ee:message>
+
+        </ee:transform>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'get-kyc-by-customer-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+    <!-- ============================= -->
+    <!-- PHASE 5 : VERIFY KYC -->
+    <!-- POST /kyc/verify -->
+    <!-- ============================= -->
+
+    <flow name="verify-kyc-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/kyc/verify"
+                allowedMethods="POST"
+                doc:name="Verify KYC">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Verifying KYC for Customer #[payload.customer_id]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Customer Id">
+            <when expression="#[isEmpty(trim(payload.customer_id default ''))]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customer_id is required"
+                        doc:name="Missing Customer Id"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Customer Id Format">
+            <when expression="#[not ((payload.customer_id as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customer_id must be a positive numeric value"
+                        doc:name="Invalid Customer Id Format"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 2): pan_verified, aadhaar_verified and
+            verification_status are declared as required (non-optional)
+            in the existing RAML contract's KYCVerifyRequest type - only
+            remarks is optional there. The XML never actually enforced
+            this. This does NOT turn the endpoint into a create operation
+            - it only validates the request body before the existing
+            "Check KYC Exists" update-only logic below runs unchanged.
+        -->
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[
+                (payload.pan_verified == null) or
+                (payload.aadhaar_verified == null) or
+                isEmpty(trim(payload.verification_status default ''))
+            ]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="pan_verified, aadhaar_verified and verification_status are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 2): verification_status must match the confirmed
+            kyc_verifications_verification_status_check constraint
+            (PENDING, VERIFIED, FAILED).
+        -->
+        <choice doc:name="Validate Verification Status">
+            <when expression="#[not (['PENDING', 'VERIFIED', 'FAILED'] contains upper(payload.verification_status as String))]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="verification_status must be one of PENDING, VERIFIED, FAILED"
+                        doc:name="Invalid Verification Status"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="request"
+                value="#[payload]"
+                doc:name="Store Request"/>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Check KYC Exists">
+
+            <db:sql><![CDATA[
+SELECT verification_id
+FROM banking.kyc_verifications
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.request.customer_id
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <choice doc:name="Check KYC Found">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:KYC_NOT_FOUND"
+                        description="KYC record not found"
+                        doc:name="KYC Missing"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Transform Message">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/java
+---
+{
+    customer_id: vars.request.customer_id,
+    pan_verified: vars.request.pan_verified,
+    aadhaar_verified: vars.request.aadhaar_verified,
+    verification_status: vars.request.verification_status,
+    remarks: vars.request.remarks
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <db:update
+                config-ref="Database_Config"
+                doc:name="Update KYC">
+
+            <db:sql><![CDATA[
+UPDATE banking.kyc_verifications
+SET
+    pan_verified = :pan_verified,
+    aadhaar_verified = :aadhaar_verified,
+    verification_status = :verification_status,
+    remarks = :remarks,
+    verified_at = CURRENT_TIMESTAMP
+WHERE customer_id = :customer_id;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customer_id: payload.customer_id,
+    pan_verified: payload.pan_verified,
+    aadhaar_verified: payload.aadhaar_verified,
+    verification_status: payload.verification_status,
+    remarks: payload.remarks
+}]
+            ]]></db:input-parameters>
+
+        </db:update>
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{
+                    "status":"SUCCESS",
+                    "message":"KYC verified successfully"
+                }]'
+                doc:name="Success Response"/>
+
+        <!--
+            Unchanged: async KYC-verified notification, fires only after
+            the db:update above has already committed.
+        -->
+        <async doc:name="Async KYC Verified Notification">
+            <try doc:name="Notification Try">
+                <http:request
+                        method="POST"
+                        config-ref="Notification_Service_Request_config"
+                        path="${notification.path}"
+                        doc:name="Send KYC Verified Notification">
+                    <http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+    eventType: "KYC_VERIFIED",
+    entityId: vars.request.customer_id as String,
+    outcome: "SUCCESS",
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: correlationId
+}]]]></http:body>
+                </http:request>
+                <error-handler>
+                    <on-error-continue enableNotifications="true" doc:name="Notification Failure Handler">
+                        <logger
+                                level="WARN"
+                                message="#[write({
+                                    correlationId: correlationId,
+                                    flow: 'verify-kyc-flow',
+                                    notificationEvent: 'KYC_VERIFIED',
+                                    outcome: 'NOTIFICATION_FAILED',
+                                    errorType: (error.errorType.identifier default 'UNKNOWN')
+                                }, 'application/json')]"
+                                doc:name="Notification Failure Log"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </async>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'verify-kyc-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+    <!-- ============================= -->
+    <!-- PHASE 5 : UPDATE KYC -->
+    <!-- PUT /kyc/{customerId} -->
+    <!-- ============================= -->
+
+    <flow name="update-kyc-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/kyc/{customerId}"
+                allowedMethods="PUT"
+                doc:name="Update KYC">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Updating KYC for Customer #[attributes.uriParams.customerId]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Customer Id Format">
+            <when expression="#[not ((attributes.uriParams.customerId as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customerId must be a positive numeric value"
+                        doc:name="Invalid Customer Id"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 2): pan_verified, aadhaar_verified and
+            verification_status are declared as required in the existing
+            RAML contract's KYCUpdateRequest type - only remarks is
+            optional there. update-kyc-flow previously validated nothing
+            about the body at all.
+        -->
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[
+                (payload.pan_verified == null) or
+                (payload.aadhaar_verified == null) or
+                isEmpty(trim(payload.verification_status default ''))
+            ]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="pan_verified, aadhaar_verified and verification_status are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 2): same verification_status enum guard as
+            verify-kyc-flow.
+        -->
+        <choice doc:name="Validate Verification Status">
+            <when expression="#[not (['PENDING', 'VERIFIED', 'FAILED'] contains upper(payload.verification_status as String))]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="verification_status must be one of PENDING, VERIFIED, FAILED"
+                        doc:name="Invalid Verification Status"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Transform Message">
+            <ee:message>
+
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/java
+---
+{
+    pan_verified: payload.pan_verified,
+    aadhaar_verified: payload.aadhaar_verified,
+    verification_status: payload.verification_status,
+    remarks: payload.remarks
+}
+                ]]></ee:set-payload>
+
+            </ee:message>
+        </ee:transform>
+
+        <db:update
+                config-ref="Database_Config"
+                doc:name="Update KYC">
+
+            <db:sql><![CDATA[
+UPDATE banking.kyc_verifications
+SET
+    pan_verified = :pan_verified,
+    aadhaar_verified = :aadhaar_verified,
+    verification_status = :verification_status,
+    remarks = :remarks,
+    verified_at = CURRENT_TIMESTAMP
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: attributes.uriParams.customerId,
+    pan_verified: payload.pan_verified,
+    aadhaar_verified: payload.aadhaar_verified,
+    verification_status: payload.verification_status,
+    remarks: payload.remarks
+}]
+            ]]></db:input-parameters>
+
+        </db:update>
+
+        <set-variable
+                variableName="rowsAffected"
+                value="#[
+                    do {
+                        var result = payload
+                        ---
+                        if (result is Number) result as Number
+                        else if (result is Object and result.affectedRows?) result.affectedRows as Number
+                        else if (result is Array and not isEmpty(result) and (result[0] is Number)) result[0] as Number
+                        else if (result == null) 0
+                        else 0
+                    }
+                ]"
+                doc:name="Normalize Affected Rows"/>
+
+        <choice doc:name="Check KYC Updated">
+            <when expression="#[vars.rowsAffected == 0]">
+                <raise-error
+                        type="BANKING:KYC_NOT_FOUND"
+                        description="KYC record not found"
+                        doc:name="KYC Missing"/>
+            </when>
+        </choice>
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{
+                    "status":"SUCCESS",
+                    "message":"KYC updated successfully"
+                }]'
+                doc:name="Success Response"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'update-kyc-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+</mule>

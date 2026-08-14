@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <!--
+        NOTE: Does NOT redefine Process_HTTP_Listener_config,
+        System_API_Request_config, or capture-trace-id-subflow.
+        Those already exist in process-api.xml within this same project.
+    -->
+
+    <!-- ================================= -->
+    <!-- DEPOSIT MONEY -->
+    <!-- POST /transactions/deposit -->
+    <!-- ================================= -->
+
+    <flow name="process-deposit-money-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/transactions/deposit"
+                allowedMethods="POST"
+                doc:name="Deposit Money">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding deposit to System API"
+                doc:name="Logger"/>
+
+        <http:request
+                method="POST"
+                config-ref="System_API_Request_config"
+                path="/transactions/deposit"
+                doc:name="Call System API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-deposit-money-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-deposit-money-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- WITHDRAW MONEY -->
+    <!-- POST /transactions/withdraw -->
+    <!-- ================================= -->
+
+    <flow name="process-withdraw-money-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/transactions/withdraw"
+                allowedMethods="POST"
+                doc:name="Withdraw Money">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding withdraw to System API"
+                doc:name="Logger"/>
+
+        <http:request
+                method="POST"
+                config-ref="System_API_Request_config"
+                path="/transactions/withdraw"
+                doc:name="Call System API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-withdraw-money-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-withdraw-money-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- TRANSFER MONEY -->
+    <!-- POST /transactions/transfer -->
+    <!-- ================================= -->
+
+    <flow name="process-transfer-money-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/transactions/transfer"
+                allowedMethods="POST"
+                doc:name="Transfer Money">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding transfer to System API"
+                doc:name="Logger"/>
+
+        <http:request
+                method="POST"
+                config-ref="System_API_Request_config"
+                path="/transactions/transfer"
+                doc:name="Call System API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-transfer-money-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-transfer-money-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- TRANSACTION HISTORY -->
+    <!-- GET /transactions/{account_number} -->
+    <!-- ================================= -->
+
+    <flow name="process-transaction-history-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/transactions/{account_number}"
+                allowedMethods="GET"
+                doc:name="Transaction History">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding transaction-history #[attributes.uriParams.account_number]"
+                doc:name="Logger"/>
+
+        <http:request
+                method="GET"
+                config-ref="System_API_Request_config"
+                path="/transactions/{account_number}"
+                doc:name="Call System API">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:uri-params><![CDATA[#[{'account_number': attributes.uriParams.account_number}]]]></http:uri-params>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-transaction-history-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-transaction-history-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+</mule>

@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!--
+        Standalone OAuth 2.0 client-credentials Auth Service. Knows
+        nothing about banking - pure identity/token concern, separate
+        deployable from Experience/Process/System.
+
+        Token design: a self-contained signed token
+        base64(clientId|issuedAt|signature), where signature is an
+        HMAC-SHA256 of clientId|issuedAt, keyed with the client secret.
+        dw::Crypto::HMACWith(value: String, secretKey: String,
+        algorithm: String): String takes plain Strings and returns the
+        hex signature directly as a String - no Binary casting needed or
+        correct. Base64 encode/decode of the overall token uses
+        dw::core::Binaries::toBase64/fromBase64. No server-side token
+        store - each app is a separate process, so rather than add a
+        shared database purely for token state, the token verifies
+        itself. Equivalent in spirit to a JWT, hand-rolled to avoid an
+        extra library dependency for this demo; production would use a
+        real signed JWT (RS256/HS256) via a JWT module.
+    -->
+
+    <configuration-properties file="config.properties" doc:name="Configuration Properties"/>
+
+    <http:listener-config name="Auth_HTTP_Listener_config" doc:name="Auth HTTP Listener Config">
+        <http:listener-connection host="0.0.0.0" port="8084"/>
+    </http:listener-config>
+
+
+    <!-- ================================= -->
+    <!-- ISSUE TOKEN -->
+    <!-- POST /oauth/token -->
+    <!-- ================================= -->
+
+    <flow name="issue-token-flow">
+
+        <http:listener
+                config-ref="Auth_HTTP_Listener_config"
+                path="/oauth/token"
+                allowedMethods="POST"
+                doc:name="Issue Token">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 401]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <logger
+                level="INFO"
+                message="Auth Service: token request received"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Grant Type">
+            <when expression="#[payload.grant_type != 'client_credentials']">
+                <raise-error
+                        type="AUTH:INVALID_GRANT"
+                        description="grant_type must be client_credentials"
+                        doc:name="Invalid Grant Type"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Client Credentials">
+            <when expression="#[payload.client_id != p('oauth.client.id') or payload.client_secret != p('oauth.client.secret')]">
+                <raise-error
+                        type="AUTH:INVALID_CLIENT"
+                        description="client_id or client_secret is invalid"
+                        doc:name="Invalid Client"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Issue Signed Token">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+import * from dw::Crypto
+import toBase64 from dw::core::Binaries
+output application/json
+
+// Unix timestamp in seconds
+var issuedAt =
+    floor(
+        (now() as Number {unit: "milliseconds"}) / 1000
+    ) as String
+
+// Data that will be signed
+var raw =
+    payload.client_id ++ "|" ++ issuedAt
+
+// HMAC-SHA256 signature, keyed with the client secret.
+// HMACWith(value: String, secretKey: String, algorithm: String): String
+// takes plain Strings and returns the hex signature directly.
+var signature =
+    HMACWith(raw, p('oauth.client.secret'), "HmacSHA256")
+
+// Final token contents
+var tokenPlain =
+    raw ++ "|" ++ signature
+
+// Base64 encode the complete token
+var tokenEncoded =
+    toBase64(tokenPlain as Binary {encoding: "UTF-8"})
+
+---
+{
+    access_token: tokenEncoded,
+    token_type: "Bearer",
+    expires_in: p('oauth.token.ttl.seconds') as Number
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger
+                level="INFO"
+                message="Auth Service: token issued successfully"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate
+                    type="AUTH:INVALID_GRANT, AUTH:INVALID_CLIENT"
+                    enableNotifications="true"
+                    doc:name="Auth Error Handler">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[401]"
+                        doc:name="Set 401"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "error": "invalid_client",
+                            "error_description": error.description
+                        }]'
+                        doc:name="OAuth Error Response"/>
+                <logger
+                        level="WARN"
+                        message="#[write({
+                            flow: 'issue-token-flow',
+                            outcome: 'TOKEN_REQUEST_REJECTED',
+                            reason: error.description
+                        }, 'application/json')]"
+                        doc:name="Rejection Log"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- INTROSPECT TOKEN -->
+    <!-- POST /oauth/introspect -->
+    <!-- ================================= -->
+
+    <flow name="introspect-token-flow">
+
+        <http:listener
+                config-ref="Auth_HTTP_Listener_config"
+                path="/oauth/introspect"
+                allowedMethods="POST"
+                doc:name="Introspect Token">
+            <http:response statusCode="200">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="200">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <logger
+                level="INFO"
+                message="Auth Service: introspection request received"
+                doc:name="Logger"/>
+
+        <!--
+            Wrapped in try/on-error-continue: a garbled or forged token
+            (bad base64, wrong number of parts, non-numeric issuedAt)
+            throws a DataWeave error during decode - this converts that
+            into a clean {active: false} instead of a 500, since an
+            introspection endpoint should never itself error out.
+        -->
+        <try doc:name="Safe Decode And Validate">
+
+            <ee:transform doc:name="Decode And Validate Token">
+                <ee:message>
+                    <ee:set-payload><![CDATA[
+%dw 2.0
+import * from dw::Crypto
+import fromBase64 from dw::core::Binaries
+output application/json
+
+var decoded =
+    fromBase64(payload.token) as String {encoding: "UTF-8"}
+
+var parts = decoded splitBy "|"
+var clientId = parts[0]
+var issuedAt = parts[1] as Number
+var providedSignature = parts[2]
+
+var raw = clientId ++ "|" ++ (issuedAt as String)
+
+// Same documented HMACWith(value, secretKey, algorithm): String call as
+// issue-token-flow - must match exactly for signatures to compare equal.
+var expectedSignature =
+    HMACWith(raw, p('oauth.client.secret'), "HmacSHA256")
+
+var nowSeconds = floor((now() as Number {unit: "milliseconds"}) / 1000)
+var ttl = p('oauth.token.ttl.seconds') as Number
+var expired = (nowSeconds - issuedAt) > ttl
+var validSignature = providedSignature == expectedSignature
+
+---
+if (validSignature and not expired)
+    { active: true, clientId: clientId }
+else
+    { active: false }
+                    ]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+
+            <error-handler>
+                <on-error-continue enableNotifications="true" doc:name="Malformed Token Handler">
+                    <set-payload
+                            mimeType="application/json"
+                            value='#[{ "active": false }]'
+                            doc:name="Inactive Response"/>
+                    <logger
+                            level="WARN"
+                            message="Auth Service: introspection received a malformed/unparseable token"
+                            doc:name="Malformed Token Log"/>
+                </on-error-continue>
+            </error-handler>
+
+        </try>
+
+        <logger
+                level="INFO"
+                message="#[write({ flow: 'introspect-token-flow', active: payload.active }, 'application/json')]"
+                doc:name="Introspection Result Log"/>
+
+    </flow>
+
+</mule>

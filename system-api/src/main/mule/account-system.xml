@@ -1,0 +1,856 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- ================================= -->
+    <!-- CREATE ACCOUNT -->
+    <!-- POST /accounts -->
+    <!-- ================================= -->
+
+    <flow name="create-account-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/accounts"
+                allowedMethods="POST"
+                doc:name="Create Account">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Creating Account"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[
+                isEmpty(trim(payload.customer_id default '')) or
+                isEmpty(trim(payload.account_type default '')) or
+                (payload.balance == null) or
+                isEmpty(trim(payload.account_status default ''))
+            ]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customer_id, account_type, balance and account_status are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 1): account_type must match the confirmed
+            accounts_account_type_check constraint (SAVINGS, CURRENT).
+            Rejects invalid values here as a clean 400/BANK-4001 instead
+            of letting a bad value reach Postgres and surface as a raw
+            CHECK-constraint violation.
+        -->
+        <choice doc:name="Validate Account Type">
+            <when expression="#[not (['SAVINGS', 'CURRENT'] contains upper(payload.account_type as String))]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="account_type must be one of SAVINGS, CURRENT"
+                        doc:name="Invalid Account Type"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 1): account_status must match the confirmed
+            accounts_account_status_check constraint (ACTIVE, INACTIVE,
+            CLOSED).
+        -->
+        <choice doc:name="Validate Account Status">
+            <when expression="#[not (['ACTIVE', 'INACTIVE', 'CLOSED'] contains upper(payload.account_status as String))]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="account_status must be one of ACTIVE, INACTIVE, CLOSED"
+                        doc:name="Invalid Account Status"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Customer Id Format">
+            <when expression="#[not ((payload.customer_id as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customer_id must be a positive numeric value"
+                        doc:name="Invalid Customer Id"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Balance Format">
+            <when expression="#[not ((payload.balance as String) matches /^[0-9]+(\.[0-9]+)?$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="balance must be a valid non-negative number"
+                        doc:name="Invalid Balance Format"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Balance Not Negative">
+            <when expression="#[(payload.balance as Number) &lt; 0]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="balance cannot be negative"
+                        doc:name="Negative Balance"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="request"
+                value="#[payload]"
+                doc:name="Store Request"/>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Check Customer Exists">
+
+            <db:sql><![CDATA[
+SELECT customer_id
+FROM banking.customers
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.request.customer_id
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <choice doc:name="Check Customer Found">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:CUSTOMER_NOT_FOUND"
+                        description="Customer not found"
+                        doc:name="Customer Missing"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Transform Message">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/java
+---
+{
+    customer_id: vars.request.customer_id,
+    account_type: vars.request.account_type,
+    balance: vars.request.balance,
+    account_status: vars.request.account_status
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <db:insert
+                config-ref="Database_Config"
+                doc:name="Insert Account">
+
+            <db:sql><![CDATA[
+INSERT INTO banking.accounts
+(
+customer_id,
+account_type,
+balance,
+account_status
+)
+VALUES
+(
+:customer_id,
+:account_type,
+:balance,
+:account_status
+);
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[
+{
+    customer_id: payload.customer_id,
+    account_type: payload.account_type,
+    balance: payload.balance,
+    account_status: payload.account_status
+}
+]
+            ]]></db:input-parameters>
+
+        </db:insert>
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{
+                    status: "SUCCESS",
+                    message: "Account created successfully"
+                }]'
+                doc:name="Success Response"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'create-account-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- GET ACCOUNT BY ACCOUNT NUMBER -->
+    <!-- GET /accounts/{accountNumber} -->
+    <!-- ================================= -->
+
+    <flow name="get-account-by-number-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/accounts/{accountNumber}"
+                allowedMethods="GET"
+                doc:name="Get Account">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Fetching Account #[attributes.uriParams.accountNumber]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Account Number Format">
+            <when expression="#[not ((attributes.uriParams.accountNumber as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="accountNumber must be a positive numeric value"
+                        doc:name="Invalid Account Number"/>
+            </when>
+        </choice>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Account">
+
+            <db:sql><![CDATA[
+SELECT
+account_number,
+customer_id,
+account_type,
+balance,
+account_status,
+created_at
+FROM banking.accounts
+WHERE account_number = :accountNumber;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    accountNumber: attributes.uriParams.accountNumber as Number {class: "java.lang.Long"}
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <choice doc:name="Check Account Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:ACCOUNT_NOT_FOUND"
+                        description="Account not found"
+                        doc:name="Account Missing"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Transform Response">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+payload[0]
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'get-account-by-number-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- GET ALL ACCOUNTS OF CUSTOMER -->
+    <!-- GET /customers/{customerId}/accounts -->
+    <!-- ================================= -->
+
+    <flow name="get-customer-accounts-flow">
+
+    <http:listener
+            config-ref="HTTP_Listener_config"
+            path="/customers/{customerId}/accounts"
+            allowedMethods="GET"
+            doc:name="Get Customer Accounts">
+        <http:response statusCode="#[vars.httpStatus default 200]">
+            <http:body>#[payload]</http:body>
+        </http:response>
+        <http:error-response statusCode="#[vars.httpStatus default 500]">
+            <http:body>#[payload]</http:body>
+        </http:error-response>
+    </http:listener>
+
+
+    <set-variable
+            variableName="startTime"
+            value="#[now()]"
+            doc:name="Start Timer"/>
+
+
+    <logger
+            level="INFO"
+            message="Fetching accounts for Customer #[attributes.uriParams.customerId]"
+            doc:name="Logger"/>
+
+
+    <set-variable
+            variableName="customerId"
+            value="#[attributes.uriParams.customerId]"
+            doc:name="Store Customer ID"/>
+
+
+    <choice doc:name="Validate Customer Id Format">
+
+        <when expression="#[not ((vars.customerId as String) matches /^[0-9]+$/)]">
+
+            <raise-error
+                    type="VALIDATION:VALIDATION"
+                    description="customerId must be a positive numeric value"
+                    doc:name="Invalid Customer Id"/>
+
+        </when>
+
+    </choice>
+
+
+    <db:select
+            config-ref="Database_Config"
+            doc:name="Check Customer Exists">
+
+        <db:sql><![CDATA[
+SELECT customer_id
+FROM banking.customers
+WHERE customer_id = :customerId;
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.customerId as Number {class: "java.lang.Long"}
+}]
+        ]]></db:input-parameters>
+
+    </db:select>
+
+
+    <choice doc:name="Check Customer Found">
+
+        <when expression="#[isEmpty(payload)]">
+
+            <raise-error
+                    type="BANKING:CUSTOMER_NOT_FOUND"
+                    description="Customer not found"
+                    doc:name="Customer Missing"/>
+
+        </when>
+
+    </choice>
+
+
+    <db:select
+            config-ref="Database_Config"
+            doc:name="Fetch Customer Accounts">
+
+        <db:sql><![CDATA[
+SELECT
+account_number,
+customer_id,
+account_type,
+balance,
+account_status,
+created_at
+FROM banking.accounts
+WHERE customer_id = :customerId
+ORDER BY account_number;
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.customerId as Number {class: "java.lang.Long"}
+}]
+        ]]></db:input-parameters>
+
+    </db:select>
+
+
+    <ee:transform doc:name="Transform Response">
+
+        <ee:message>
+
+            <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+payload
+            ]]></ee:set-payload>
+
+        </ee:message>
+
+    </ee:transform>
+
+
+    <logger
+            level="INFO"
+            message="#[write({
+                correlationId: correlationId,
+                flow: 'get-customer-accounts-flow',
+                httpStatus: (vars.httpStatus default 200),
+                durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                outcome: 'SUCCESS'
+            }, 'application/json')]"
+            doc:name="Success Log"/>
+
+
+    <error-handler>
+
+        <on-error-propagate
+                enableNotifications="true">
+
+            <flow-ref
+                    name="global-error-response-subflow"
+                    doc:name="Build Error Response"/>
+
+        </on-error-propagate>
+
+    </error-handler>
+
+</flow>
+
+    <!-- ================================= -->
+    <!-- UPDATE ACCOUNT -->
+    <!-- PUT /accounts/{accountNumber} -->
+    <!-- ================================= -->
+
+    <flow name="update-account-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/accounts/{accountNumber}"
+                allowedMethods="PUT"
+                doc:name="Update Account">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Updating Account #[attributes.uriParams.accountNumber]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Account Number Format">
+            <when expression="#[not ((attributes.uriParams.accountNumber as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="accountNumber must be a positive numeric value"
+                        doc:name="Invalid Account Number"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[
+                isEmpty(trim(payload.customer_id default '')) or
+                isEmpty(trim(payload.account_type default '')) or
+                (payload.balance == null) or
+                isEmpty(trim(payload.account_status default ''))
+            ]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customer_id, account_type, balance and account_status are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 1): same account_type enum guard as
+            create-account-flow.
+        -->
+        <choice doc:name="Validate Account Type">
+            <when expression="#[not (['SAVINGS', 'CURRENT'] contains upper(payload.account_type as String))]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="account_type must be one of SAVINGS, CURRENT"
+                        doc:name="Invalid Account Type"/>
+            </when>
+        </choice>
+
+        <!--
+            NEW (Task 1): same account_status enum guard as
+            create-account-flow.
+        -->
+        <choice doc:name="Validate Account Status">
+            <when expression="#[not (['ACTIVE', 'INACTIVE', 'CLOSED'] contains upper(payload.account_status as String))]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="account_status must be one of ACTIVE, INACTIVE, CLOSED"
+                        doc:name="Invalid Account Status"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Customer Id Format">
+            <when expression="#[not ((payload.customer_id as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customer_id must be a positive numeric value"
+                        doc:name="Invalid Customer Id"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Balance Format">
+            <when expression="#[not ((payload.balance as String) matches /^[0-9]+(\.[0-9]+)?$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="balance must be a valid non-negative number"
+                        doc:name="Invalid Balance Format"/>
+            </when>
+        </choice>
+
+        <choice doc:name="Validate Balance Not Negative">
+            <when expression="#[(payload.balance as Number) &lt; 0]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="balance cannot be negative"
+                        doc:name="Negative Balance"/>
+            </when>
+        </choice>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Check Customer Exists">
+
+            <db:sql><![CDATA[
+SELECT customer_id
+FROM banking.customers
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: payload.customer_id
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <choice doc:name="Check Customer Found">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:CUSTOMER_NOT_FOUND"
+                        description="Customer not found"
+                        doc:name="Customer Missing"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="request"
+                value="#[payload]"
+                doc:name="Store Request Before Reassignment"/>
+
+        <ee:transform doc:name="Transform Message">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/java
+---
+{
+    customer_id: attributes.uriParams.accountNumber,
+    account_type: vars.request[0].account_type,
+    balance: vars.request[0].balance,
+    account_status: vars.request[0].account_status
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <db:update
+                config-ref="Database_Config"
+                doc:name="Update Account">
+
+            <db:sql><![CDATA[
+UPDATE banking.accounts
+SET
+    customer_id = :customer_id,
+    account_type = :account_type,
+    balance = :balance,
+    account_status = :account_status
+WHERE account_number = :accountNumber;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    accountNumber: attributes.uriParams.accountNumber as Number {class: "java.lang.Long"},
+    customer_id: vars.request[0].customer_id,
+    account_type: vars.request[0].account_type,
+    balance: vars.request[0].balance,
+    account_status: vars.request[0].account_status
+}]
+            ]]></db:input-parameters>
+        </db:update>
+
+        <set-variable
+                variableName="rowsAffected"
+                value="#[
+                    do {
+                        var result = payload
+                        ---
+                        if (result is Number) result as Number
+                        else if (result is Object and result.affectedRows?) result.affectedRows as Number
+                        else if (result is Array and not isEmpty(result) and (result[0] is Number)) result[0] as Number
+                        else if (result == null) 0
+                        else 0
+                    }
+                ]"
+                doc:name="Normalize Affected Rows"/>
+
+        <choice doc:name="Check Account Updated">
+            <when expression="#[vars.rowsAffected == 0]">
+                <raise-error
+                        type="BANKING:ACCOUNT_NOT_FOUND"
+                        description="Account not found"
+                        doc:name="Account Missing"/>
+            </when>
+        </choice>
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{
+                    "status":"SUCCESS",
+                    "message":"Account updated successfully"
+                }]'
+                doc:name="Success Response"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'update-account-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- DELETE ACCOUNT -->
+    <!-- DELETE /accounts/{accountNumber} -->
+    <!-- ================================= -->
+
+    <flow name="delete-account-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/accounts/{accountNumber}"
+                allowedMethods="DELETE"
+                doc:name="Delete Account">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Deleting Account #[attributes.uriParams.accountNumber]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Account Number Format">
+            <when expression="#[not ((attributes.uriParams.accountNumber as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="accountNumber must be a positive numeric value"
+                        doc:name="Invalid Account Number"/>
+            </when>
+        </choice>
+
+        <db:delete
+                config-ref="Database_Config"
+                doc:name="Delete Account">
+
+            <db:sql><![CDATA[
+DELETE FROM banking.accounts
+WHERE account_number = :accountNumber;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    accountNumber: attributes.uriParams.accountNumber as Number {class: "java.lang.Long"}
+}]
+            ]]></db:input-parameters>
+
+        </db:delete>
+
+        <set-variable
+                variableName="rowsAffected"
+                value="#[
+                    do {
+                        var result = payload
+                        ---
+                        if (result is Number) result as Number
+                        else if (result is Object and result.affectedRows?) result.affectedRows as Number
+                        else if (result is Array and not isEmpty(result) and (result[0] is Number)) result[0] as Number
+                        else if (result == null) 0
+                        else 0
+                    }
+                ]"
+                doc:name="Normalize Affected Rows"/>
+
+        <choice doc:name="Check Account Deleted">
+            <when expression="#[vars.rowsAffected == 0]">
+                <raise-error
+                        type="BANKING:ACCOUNT_NOT_FOUND"
+                        description="Account not found"
+                        doc:name="Account Missing"/>
+            </when>
+        </choice>
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{
+                    "status":"SUCCESS",
+                    "message":"Account deleted successfully"
+                }]'
+                doc:name="Success Response"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'delete-account-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate
+                    type="DB:QUERY_EXECUTION"
+                    when="#[(error.description default '') contains 'foreign key' or (error.description default '') contains 'violates foreign key constraint']"
+                    enableNotifications="true"
+                    doc:name="FK Violation Handler">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[409]"
+                        doc:name="Set 409"/>
+                <ee:transform doc:name="Build FK Conflict Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "FAILED",
+    errorCode: "BANK-4092",
+    message: "Account cannot be deleted because associated transactions exist",
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+</mule>

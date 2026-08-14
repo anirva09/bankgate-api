@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <!--
+        Mock notification receiver. Binds to notification.receiver.port,
+        a SEPARATE property from notification.port (the one the sender
+        calls). Kept independent so notification.port can be pointed at
+        an unreachable port to test failure handling, without also
+        relocating this listener - previously both used the same
+        property, so changing it just moved sender and receiver together
+        and never actually simulated an outage.
+    -->
+
+    <http:listener-config name="Notification_HTTP_Listener_config" doc:name="Notification HTTP Listener Config">
+        <http:listener-connection host="0.0.0.0" port="${notification.receiver.port}"/>
+    </http:listener-config>
+
+    <flow name="mock-notification-receiver-flow">
+
+        <http:listener
+                config-ref="Notification_HTTP_Listener_config"
+                path="${notification.path}"
+                allowedMethods="POST"
+                doc:name="Receive Notification">
+            <http:response statusCode="200">
+                <http:body>#[payload]</http:body>
+            </http:response>
+        </http:listener>
+
+        <logger
+                level="INFO"
+                message="#[write({ receivedNotification: true, event: payload }, 'application/json')]"
+                doc:name="Log Received Notification"/>
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{ "status": "RECEIVED" }]'
+                doc:name="Acknowledge Notification"/>
+
+    </flow>
+
+</mule>

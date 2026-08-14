@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+      http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <munit:config name="dashboard-tests-config"/>
+
+    <!-- ================================= -->
+    <!-- TEST 1: Invalid customerId format -->
+    <!-- ================================= -->
+
+    <munit:test name="dashboard-invalid-customer-id-validation" description="Non-numeric customerId path param should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: 'abc' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="customer-dashboard-flow" doc:name="Call Dashboard Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- ================================= -->
+    <!-- TEST 2: Blank customerId -->
+    <!-- ================================= -->
+
+    <munit:test name="dashboard-blank-customer-id-validation" description="Blank customerId path param should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="customer-dashboard-flow" doc:name="Call Dashboard Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- ================================= -->
+    <!-- TEST 3: Customer not found -->
+    <!-- ================================= -->
+
+    <munit:test name="dashboard-customer-not-found" description="Valid numeric customerId with no matching customer row should raise BANKING:CUSTOMER_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '9999' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="customer-dashboard-flow" doc:name="Call Dashboard Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:CUSTOMER_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:CUSTOMER_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:CUSTOMER_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- ================================= -->
+    <!-- TEST 4: Valid dashboard with accounts and KYC -->
+    <!-- ================================= -->
+
+    <munit:test name="dashboard-valid-customer-with-accounts-and-kyc" description="Existing customer with accounts and KYC record should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{
+                        customer_id: 1,
+                        first_name: 'Arjun',
+                        last_name: 'Test',
+                        email: 'arjun.test@example.com',
+                        phone: '9000000099',
+                        date_of_birth: |2000-01-01|,
+                        pan: 'ABCDE1234F',
+                        aadhaar: '999900001111',
+                        address_line: '123 MG Road',
+                        city: 'Hyderabad',
+                        state: 'Telangana',
+                        postal_code: '500001'
+                    }]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Accounts">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{
+                        account_number: '1000000001',
+                        customer_id: 1,
+                        account_type: 'SAVINGS',
+                        balance: 5000.00,
+                        account_status: 'ACTIVE',
+                        created_at: |2024-01-01T10:00:00|
+                    }]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch KYC">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch KYC"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{
+                        verification_id: 1,
+                        customer_id: 1,
+                        pan_verified: true,
+                        aadhaar_verified: true,
+                        verification_status: 'VERIFIED',
+                        remarks: 'All documents verified',
+                        verified_at: |2024-01-05T10:00:00|,
+                        created_at: |2024-01-01T10:00:00|
+                    }]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '1' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="customer-dashboard-flow" doc:name="Call Dashboard Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- ================================= -->
+    <!-- TEST 5: Valid dashboard, no KYC record -->
+    <!-- ================================= -->
+
+    <munit:test name="dashboard-valid-customer-no-kyc" description="Existing customer with no accounts and no KYC record should still complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Customer">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Customer"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{
+                        customer_id: 2,
+                        first_name: 'Priya',
+                        last_name: 'Test',
+                        email: 'priya.test@example.com',
+                        phone: '9000000088',
+                        date_of_birth: |1995-05-05|,
+                        pan: 'FGHIJ5678K',
+                        aadhaar: '888800002222',
+                        address_line: '45 Park Street',
+                        city: 'Hyderabad',
+                        state: 'Telangana',
+                        postal_code: '500002'
+                    }]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Accounts">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch KYC">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch KYC"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { customerId: '2' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="customer-dashboard-flow" doc:name="Call Dashboard Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+      http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <munit:config name="transaction-tests-config"/>
+
+    <munit:test name="deposit-valid-success" description="Valid deposit should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Current Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Current Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{account_number: 1, balance: 1000}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update" doc:name="Mock Update Balance">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Update Balance"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Transaction">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Transaction"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"account_number": 1, "amount": 500, "remarks": "test deposit"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="deposit-money-flow" doc:name="Call Deposit Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="deposit-invalid-amount-validation" description="Zero or negative amount should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"account_number": 1, "amount": 0}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="deposit-money-flow" doc:name="Call Deposit Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="deposit-account-not-found" description="Deposit to nonexistent account should raise BANKING:ACCOUNT_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Current Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Current Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"account_number": 999999, "amount": 500}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="deposit-money-flow" doc:name="Call Deposit Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:ACCOUNT_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:ACCOUNT_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:ACCOUNT_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="withdraw-valid-success" description="Valid withdraw within balance should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{account_number: 1, balance: 1000}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update" doc:name="Mock Update Balance">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Update Balance"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Transaction">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Transaction"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"account_number": 1, "amount": 200}]' mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="withdraw-money-flow" doc:name="Call Withdraw Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="withdraw-insufficient-balance" description="Withdraw exceeding balance should raise BANKING:INSUFFICIENT_BALANCE">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{account_number: 1, balance: 100}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"account_number": 1, "amount": 5000}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="withdraw-money-flow" doc:name="Call Withdraw Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:INSUFFICIENT_BALANCE" doc:name="Catch Insufficient Balance Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:INSUFFICIENT_BALANCE" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:INSUFFICIENT_BALANCE')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="transfer-same-account-validation" description="from_account equal to to_account should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"from_account": 1, "to_account": 1, "amount": 100}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="transfer-money-flow" doc:name="Call Transfer Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="transfer-sender-not-found" description="Nonexistent from_account should raise BANKING:ACCOUNT_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Sender Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Sender Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"from_account": 999999, "to_account": 2, "amount": 100}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="transfer-money-flow" doc:name="Call Transfer Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:ACCOUNT_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:ACCOUNT_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:ACCOUNT_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="transfer-valid-success" description="Valid transfer should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Sender Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Sender Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{account_number: 1, balance: 1000}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Receiver Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Receiver Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{account_number: 2, balance: 500}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update" doc:name="Mock Debit Sender">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Debit Sender"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update" doc:name="Mock Credit Receiver">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Credit Receiver"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Sender Transaction">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Sender Transaction"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Receiver Transaction">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Receiver Transaction"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"from_account": 1, "to_account": 2, "amount": 300, "remarks": "test transfer"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="transfer-money-flow" doc:name="Call Transfer Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

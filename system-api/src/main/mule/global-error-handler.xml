@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- ============================================================= -->
+    <!-- PHASE 7 : CENTRALIZED ERROR HANDLING                          -->
+    <!-- Single source of truth for HTTP status + errorCode mapping.   -->
+    <!-- Every flow's error-handler calls ONLY this sub-flow.          -->
+    <!-- ============================================================= -->
+
+    <sub-flow name="global-error-response-subflow">
+
+        <logger
+                level="ERROR"
+                message="Error [correlationId=#[correlationId]] type=#[error.errorType.identifier] description=#[error.description]"
+                doc:name="Log Error"/>
+
+        <!--
+            Single mapping table:
+              VALIDATION            -> 400 / BANK-4001
+              CUSTOMER_NOT_FOUND    -> 404 / BANK-4041
+              ACCOUNT_NOT_FOUND     -> 404 / BANK-4042
+              KYC_NOT_FOUND         -> 404 / BANK-4043
+              CONFLICT               -> 409 / BANK-4091
+              INSUFFICIENT_BALANCE  -> 400 / BANK-4002
+              anything else         -> 500 / BANK-5000
+
+            For the "anything else" bucket (unexpected/technical errors such as
+            DB exceptions, type-conversion errors, connectivity/FK-constraint
+            issues), error.description is NEVER surfaced to the caller since it
+            can contain SQL, stack traces or internal details. Only the known
+            business errors use error.description as the message.
+        -->
+        <set-variable
+                variableName="errorMeta"
+                value="#[
+                    do {
+                        var errorId = error.errorType.identifier
+                        var knownBusinessErrors = ['VALIDATION','CUSTOMER_NOT_FOUND','ACCOUNT_NOT_FOUND','KYC_NOT_FOUND','CONFLICT','INSUFFICIENT_BALANCE']
+                        ---
+                        {
+                            httpStatus:
+                                if (errorId == 'VALIDATION') 400
+                                else if (errorId == 'CUSTOMER_NOT_FOUND') 404
+                                else if (errorId == 'ACCOUNT_NOT_FOUND') 404
+                                else if (errorId == 'KYC_NOT_FOUND') 404
+                                else if (errorId == 'CONFLICT') 409
+                                else if (errorId == 'INSUFFICIENT_BALANCE') 400
+                                else 500,
+                            errorCode:
+                                if (errorId == 'VALIDATION') 'BANK-4001'
+                                else if (errorId == 'CUSTOMER_NOT_FOUND') 'BANK-4041'
+                                else if (errorId == 'ACCOUNT_NOT_FOUND') 'BANK-4042'
+                                else if (errorId == 'KYC_NOT_FOUND') 'BANK-4043'
+                                else if (errorId == 'CONFLICT') 'BANK-4091'
+                                else if (errorId == 'INSUFFICIENT_BALANCE') 'BANK-4002'
+                                else 'BANK-5000',
+                            message:
+                                if (knownBusinessErrors contains errorId)
+                                    (error.description default 'Request could not be processed')
+                                else
+                                    'An internal server error occurred'
+                        }
+                    }
+                ]"
+                doc:name="Determine Error Mapping"/>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[vars.errorMeta.httpStatus]"
+                doc:name="Set HTTP Status"/>
+
+        <ee:transform doc:name="Build Standard Error Response">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "FAILED",
+    errorCode: vars.errorMeta.errorCode,
+    message: vars.errorMeta.message,
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: correlationId
+}
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+    </sub-flow>
+
+</mule>

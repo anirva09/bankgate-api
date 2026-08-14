@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+      http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <munit:config name="account-tests-config"/>
+
+    <munit:test name="create-account-valid-success" description="Valid account creation should complete without error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Customer Exists">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Customer Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{customer_id: 1}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "1", "account_type": "SAVINGS", "balance": 5000, "account_status": "ACTIVE"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <set-variable variableName="flowSucceeded" value="false" doc:name="Init Success Flag"/>
+            <flow-ref name="create-account-flow" doc:name="Call Create Account Flow"/>
+            <set-variable variableName="flowSucceeded" value="true" doc:name="Mark Success"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flowSucceeded]" is="#[MunitTools::equalTo('true')]" doc:name="Assert Flow Completed Without Error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="create-account-invalid-type-validation" description="account_type outside SAVINGS/CURRENT should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "1", "account_type": "CHECKING", "balance": 500, "account_status": "ACTIVE"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="create-account-flow" doc:name="Call Create Account Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="create-account-invalid-status-validation" description="account_status outside ACTIVE/INACTIVE/CLOSED should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "1", "account_type": "SAVINGS", "balance": 500, "account_status": "FROZEN"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="create-account-flow" doc:name="Call Create Account Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="create-account-negative-balance-validation" description="Negative balance should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "1", "account_type": "SAVINGS", "balance": -100, "account_status": "ACTIVE"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="create-account-flow" doc:name="Call Create Account Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="create-account-customer-not-found" description="Nonexistent customer_id should raise BANKING:CUSTOMER_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Check Customer Exists">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Customer Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:payload value='#[{"customer_id": "9999", "account_type": "SAVINGS", "balance": 500, "account_status": "ACTIVE"}]' mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="create-account-flow" doc:name="Call Create Account Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:CUSTOMER_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:CUSTOMER_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:CUSTOMER_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="get-account-invalid-number-format-validation" description="Non-numeric accountNumber should raise VALIDATION:VALIDATION">
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { accountNumber: 'abc' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="get-account-by-number-flow" doc:name="Call Get Account Flow"/>
+                <error-handler>
+                    <on-error-continue type="VALIDATION:VALIDATION" doc:name="Catch Validation Error">
+                        <set-variable variableName="caughtErrorType" value="VALIDATION:VALIDATION" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('VALIDATION:VALIDATION')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="get-account-not-found" description="Valid numeric accountNumber, no match, should raise BANKING:ACCOUNT_NOT_FOUND">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select" doc:name="Mock Fetch Account">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event doc:name="Set Event">
+                <munit:attributes value="#[{ uriParams: { accountNumber: '999999' } }]" mediaType="application/java"/>
+            </munit:set-event>
+            <try doc:name="Try">
+                <flow-ref name="get-account-by-number-flow" doc:name="Call Get Account Flow"/>
+                <error-handler>
+                    <on-error-continue type="BANKING:ACCOUNT_NOT_FOUND" doc:name="Catch Not Found Error">
+                        <set-variable variableName="caughtErrorType" value="BANKING:ACCOUNT_NOT_FOUND" doc:name="Record Error Type"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caughtErrorType]" is="#[MunitTools::equalTo('BANKING:ACCOUNT_NOT_FOUND')]" doc:name="Assert Error Type"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

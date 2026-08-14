@@ -1,0 +1,43 @@
+#%RAML 1.0 Trait
+usage: |
+  Reusable response shapes for common error conditions, applied to
+  resources/methods via `is: [...]`. Each trait only adds the response
+  codes relevant to that failure mode — it does not restate 200 responses.
+
+uses:
+  types: ../libraries/types.raml
+
+validationError:
+  responses:
+    400:
+      body:
+        application/json:
+          type: types.ErrorResponse
+
+notFoundError:
+  responses:
+    404:
+      body:
+        application/json:
+          type: types.ErrorResponse
+
+conflictError:
+  responses:
+    409:
+      body:
+        application/json:
+          type: types.ErrorResponse
+
+insufficientBalanceError:
+  responses:
+    400:
+      body:
+        application/json:
+          type: types.ErrorResponse
+
+serverError:
+  responses:
+    500:
+      body:
+        application/json:
+          type: types.ErrorResponse

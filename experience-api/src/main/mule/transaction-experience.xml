@@ -1,0 +1,559 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!--
+        NOTE: This file intentionally does NOT redefine
+        Experience_HTTP_Listener_config or Process_API_Request_config -
+        those already exist in account-experience.xml within this same
+        project. Auth_Service_Request_config and the token-validation
+        sub-flow ARE redefined here (with unique names) since Mule does
+        not allow flow-ref to resolve a sub-flow by name across files.
+    -->
+
+    <http:request-config name="Auth_Service_Request_config_Transaction" doc:name="Auth Service Request Config">
+        <http:request-connection host="localhost" port="8084"/>
+    </http:request-config>
+
+    <sub-flow name="validate-token-subflow-transaction" doc:name="Validate Access Token">
+
+        <choice doc:name="Check Authorization Header Present">
+            <when expression="#[isEmpty(attributes.headers.'Authorization' default '') or not (attributes.headers.'Authorization' default '' startsWith 'Bearer ')]">
+                <raise-error
+                        type="AUTH:UNAUTHORIZED"
+                        description="Missing or malformed Authorization header - expected 'Bearer' followed by a token"
+                        doc:name="Missing Bearer Token"/>
+            </when>
+        </choice>
+
+        <set-variable
+                variableName="accessToken"
+                value="#[(attributes.headers.'Authorization')[7 to -1]]"
+                doc:name="Extract Token"/>
+
+        <http:request
+                method="POST"
+                config-ref="Auth_Service_Request_config_Transaction"
+                path="/oauth/introspect"
+                target="introspectionResult"
+                doc:name="Introspect Token">
+            <http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{ token: vars.accessToken }]]]></http:body>
+        </http:request>
+
+        <choice doc:name="Check Token Active">
+            <when expression="#[vars.introspectionResult.active != true]">
+                <raise-error
+                        type="AUTH:UNAUTHORIZED"
+                        description="Invalid or expired access token"
+                        doc:name="Invalid Token"/>
+            </when>
+        </choice>
+
+    </sub-flow>
+
+
+    <!-- ================================= -->
+    <!-- DEPOSIT -->
+    <!-- POST /transactions/deposit -->
+    <!-- ================================= -->
+
+    <flow name="experience-deposit-flow">
+
+        <http:listener
+                config-ref="Experience_HTTP_Listener_config"
+                path="/transactions/deposit"
+                allowedMethods="POST"
+                doc:name="Deposit">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+        <flow-ref name="validate-token-subflow-transaction" doc:name="Validate Token"/>
+
+        <logger
+                level="INFO"
+                message="Experience API: received deposit request"
+                doc:name="Logger"/>
+
+        <http:request
+                method="POST"
+                config-ref="Process_API_Request_config"
+                path="/transactions/deposit"
+                doc:name="Call Process API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'experience-deposit-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Experience Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="AUTH:UNAUTHORIZED"
+                    enableNotifications="true"
+                    doc:name="Unauthorized Handler">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[401]"
+                        doc:name="Set 401"/>
+                <ee:transform doc:name="Build Unauthorized Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "FAILED",
+    errorCode: "BANK-4011",
+    message: error.description,
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: vars.traceId default correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger
+                        level="WARN"
+                        message="#[write({
+                            correlationId: vars.traceId default correlationId,
+                            flow: 'experience-deposit-flow',
+                            httpStatus: 401,
+                            outcome: 'UNAUTHORIZED'
+                        }, 'application/json')]"
+                        doc:name="Unauthorized Log"/>
+            </on-error-continue>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="Process API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"Process API is unavailable",
+                            "errorCode":"BANK-5032"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'experience-deposit-flow',
+                            httpStatus: 503,
+                            outcome: 'PROCESS_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- WITHDRAW -->
+    <!-- POST /transactions/withdraw -->
+    <!-- ================================= -->
+
+    <flow name="experience-withdraw-flow">
+
+        <http:listener
+                config-ref="Experience_HTTP_Listener_config"
+                path="/transactions/withdraw"
+                allowedMethods="POST"
+                doc:name="Withdraw">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+        <flow-ref name="validate-token-subflow-transaction" doc:name="Validate Token"/>
+
+        <logger
+                level="INFO"
+                message="Experience API: received withdraw request"
+                doc:name="Logger"/>
+
+        <http:request
+                method="POST"
+                config-ref="Process_API_Request_config"
+                path="/transactions/withdraw"
+                doc:name="Call Process API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'experience-withdraw-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Experience Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="AUTH:UNAUTHORIZED"
+                    enableNotifications="true"
+                    doc:name="Unauthorized Handler">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[401]"
+                        doc:name="Set 401"/>
+                <ee:transform doc:name="Build Unauthorized Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "FAILED",
+    errorCode: "BANK-4011",
+    message: error.description,
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: vars.traceId default correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger
+                        level="WARN"
+                        message="#[write({
+                            correlationId: vars.traceId default correlationId,
+                            flow: 'experience-withdraw-flow',
+                            httpStatus: 401,
+                            outcome: 'UNAUTHORIZED'
+                        }, 'application/json')]"
+                        doc:name="Unauthorized Log"/>
+            </on-error-continue>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="Process API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"Process API is unavailable",
+                            "errorCode":"BANK-5032"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'experience-withdraw-flow',
+                            httpStatus: 503,
+                            outcome: 'PROCESS_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- TRANSFER -->
+    <!-- POST /transactions/transfer -->
+    <!-- ================================= -->
+
+    <flow name="experience-transfer-flow">
+
+        <http:listener
+                config-ref="Experience_HTTP_Listener_config"
+                path="/transactions/transfer"
+                allowedMethods="POST"
+                doc:name="Transfer">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+        <flow-ref name="validate-token-subflow-transaction" doc:name="Validate Token"/>
+
+        <logger
+                level="INFO"
+                message="Experience API: received transfer request"
+                doc:name="Logger"/>
+
+        <http:request
+                method="POST"
+                config-ref="Process_API_Request_config"
+                path="/transactions/transfer"
+                doc:name="Call Process API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'experience-transfer-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Experience Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="AUTH:UNAUTHORIZED"
+                    enableNotifications="true"
+                    doc:name="Unauthorized Handler">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[401]"
+                        doc:name="Set 401"/>
+                <ee:transform doc:name="Build Unauthorized Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "FAILED",
+    errorCode: "BANK-4011",
+    message: error.description,
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: vars.traceId default correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger
+                        level="WARN"
+                        message="#[write({
+                            correlationId: vars.traceId default correlationId,
+                            flow: 'experience-transfer-flow',
+                            httpStatus: 401,
+                            outcome: 'UNAUTHORIZED'
+                        }, 'application/json')]"
+                        doc:name="Unauthorized Log"/>
+            </on-error-continue>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="Process API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"Process API is unavailable",
+                            "errorCode":"BANK-5032"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'experience-transfer-flow',
+                            httpStatus: 503,
+                            outcome: 'PROCESS_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- TRANSACTION HISTORY -->
+    <!-- GET /transactions/{account_number} -->
+    <!-- NOTE: snake_case account_number preserved -->
+    <!-- exactly as used by Process/System API. -->
+    <!-- ================================= -->
+
+    <flow name="experience-transaction-history-flow">
+
+        <http:listener
+                config-ref="Experience_HTTP_Listener_config"
+                path="/transactions/{account_number}"
+                allowedMethods="GET"
+                doc:name="Transaction History">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+        <flow-ref name="validate-token-subflow-transaction" doc:name="Validate Token"/>
+
+        <logger
+                level="INFO"
+                message="Experience API: received transaction-history #[attributes.uriParams.account_number]"
+                doc:name="Logger"/>
+
+        <http:request
+                method="GET"
+                config-ref="Process_API_Request_config"
+                path="/transactions/{account_number}"
+                doc:name="Call Process API">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:uri-params><![CDATA[#[{'account_number': attributes.uriParams.account_number}]]]></http:uri-params>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'experience-transaction-history-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Experience Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="AUTH:UNAUTHORIZED"
+                    enableNotifications="true"
+                    doc:name="Unauthorized Handler">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[401]"
+                        doc:name="Set 401"/>
+                <ee:transform doc:name="Build Unauthorized Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "FAILED",
+    errorCode: "BANK-4011",
+    message: error.description,
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: vars.traceId default correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger
+                        level="WARN"
+                        message="#[write({
+                            correlationId: vars.traceId default correlationId,
+                            flow: 'experience-transaction-history-flow',
+                            httpStatus: 401,
+                            outcome: 'UNAUTHORIZED'
+                        }, 'application/json')]"
+                        doc:name="Unauthorized Log"/>
+            </on-error-continue>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="Process API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"Process API is unavailable",
+                            "errorCode":"BANK-5032"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'experience-transaction-history-flow',
+                            httpStatus: 503,
+                            outcome: 'PROCESS_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+</mule>

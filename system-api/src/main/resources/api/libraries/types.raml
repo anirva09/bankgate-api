@@ -1,0 +1,502 @@
+#%RAML 1.0 Library
+usage: Reusable data types for the Banking Customer Onboarding & KYC Platform.
+
+types:
+
+  # ============================================================
+  # SHARED / ENVELOPE TYPES
+  # ============================================================
+
+  SuccessResponse:
+    type: object
+    description: Standard success envelope returned by write operations (POST/PUT/DELETE).
+    properties:
+      status:
+        type: string
+        enum: [SUCCESS]
+      message:
+        type: string
+    example:
+      status: SUCCESS
+      message: Customer inserted successfully
+
+  ErrorResponse:
+    type: object
+    description: |
+      Standard error envelope returned by every flow via the shared
+      global-error-response-subflow. errorCode maps 1:1 to HTTP status:
+        BANK-4001 -> 400 (validation)
+        BANK-4002 -> 400 (insufficient balance)
+        BANK-4011 -> 401 (unauthorized / missing or invalid access token)
+        BANK-4041 -> 404 (customer not found)
+        BANK-4042 -> 404 (account not found)
+        BANK-4043 -> 404 (KYC record not found)
+        BANK-4091 -> 409 (conflict / duplicate)
+        BANK-4092 -> 409 (conflict / cannot delete due to dependent records)
+        BANK-5000 -> 500 (unexpected internal error)
+    properties:
+      status:
+        type: string
+        enum: [FAILED]
+      errorCode:
+        type: string
+        enum: [BANK-4001, BANK-4002, BANK-4011, BANK-4041, BANK-4042, BANK-4043, BANK-4091, BANK-4092, BANK-5000]
+      message:
+        type: string
+      timestamp:
+        type: string
+        description: yyyy-MM-dd'T'HH:mm:ss
+      correlationId:
+        type: string
+    example:
+      status: FAILED
+      errorCode: BANK-4001
+      message: email must be a valid email address
+      timestamp: "2026-08-09T22:59:32"
+      correlationId: e1e70b50-9417-11f1-a550-9822ef801c40
+
+  # ============================================================
+  # CUSTOMER
+  # ============================================================
+
+  Customer:
+    type: object
+    description: Full customer record as returned by GET endpoints.
+    properties:
+      customer_id: integer
+      first_name: string
+      last_name: string
+      email: string
+      phone: string
+      date_of_birth?:
+        type: date-only
+      pan?: string
+      aadhaar?: string
+      address_line?: string
+      city?: string
+      state?: string
+      postal_code?: string
+    example:
+      customer_id: 1012
+      first_name: Arjun
+      last_name: TestCustomer
+      email: arjun.testcustomer.20260809.8472@example.com
+      phone: "9008472163"
+      date_of_birth: "2000-05-15"
+      pan: QWERZ8472M
+      aadhaar: "900084721631"
+      address_line: 25 Test Avenue
+      city: Hyderabad
+      state: Telangana
+      postal_code: "500001"
+
+  CustomerCreateRequest:
+    type: object
+    description: |
+      Body for POST /customers/onboard. first_name, last_name and email are
+      mandatory. email must match a practical local@domain.tld shape.
+      date_of_birth is optional, but if provided must be a valid yyyy-MM-dd
+      date and the customer must be at least 18 years old as of today.
+    properties:
+      first_name: string
+      last_name: string
+      email: string
+      phone?: string
+      date_of_birth?:
+        type: date-only
+      pan?: string
+      aadhaar?: string
+      address_line?: string
+      city?: string
+      state?: string
+      postal_code?: string
+    example:
+      first_name: Sneha
+      last_name: Exactly18
+      email: sneha.exactly18.20260809@example.com
+      phone: "9008472203"
+      date_of_birth: "2008-08-09"
+      pan: QWERZ8203M
+      aadhaar: "900084722033"
+      address_line: 13 Test Street
+      city: Hyderabad
+      state: Telangana
+      postal_code: "500001"
+
+  CustomerUpdateRequest:
+    type: object
+    description: |
+      Body for PUT /customers/{customerId}. This is a full-replace update
+      over exactly these six columns — first_name, last_name, date_of_birth,
+      pan and aadhaar are NOT updatable through this endpoint. All six
+      fields below are required; omitting any one is rejected rather than
+      silently nulling the existing value.
+    properties:
+      email: string
+      phone: string
+      address_line: string
+      city: string
+      state: string
+      postal_code: string
+    example:
+      email: arjun.updated@example.com
+      phone: "9008472164"
+      address_line: 26 Test Avenue
+      city: Hyderabad
+      state: Telangana
+      postal_code: "500002"
+
+  # ============================================================
+  # ACCOUNTS
+  # ============================================================
+
+  Account:
+    type: object
+    properties:
+      account_number: integer
+      customer_id: integer
+      account_type: string
+      balance: number
+      account_status: string
+      created_at:
+        type: datetime
+    example:
+      account_number: 500123456
+      customer_id: 1012
+      account_type: SAVINGS
+      balance: 15000.50
+      account_status: ACTIVE
+      created_at: "2026-08-09T18:30:00Z"
+
+  AccountCreateRequest:
+    type: object
+    description: |
+      Body for POST /accounts. All four fields are required. balance must
+      be a non-negative number. customer_id must reference an existing
+      customer. account_type must be one of SAVINGS, CURRENT.
+      account_status must be one of ACTIVE, INACTIVE, CLOSED.
+    properties:
+      customer_id: integer
+      account_type:
+        type: string
+        enum: [SAVINGS, CURRENT]
+      balance: number
+      account_status:
+        type: string
+        enum: [ACTIVE, INACTIVE, CLOSED]
+    example:
+      customer_id: 1012
+      account_type: SAVINGS
+      balance: 5000
+      account_status: ACTIVE
+
+  AccountUpdateRequest:
+    type: object
+    description: |
+      Body for PUT /accounts/{accountNumber}. Full-replace update over all
+      four columns; all fields required. account_type must be one of
+      SAVINGS, CURRENT. account_status must be one of ACTIVE, INACTIVE,
+      CLOSED.
+    properties:
+      customer_id: integer
+      account_type:
+        type: string
+        enum: [SAVINGS, CURRENT]
+      balance: number
+      account_status:
+        type: string
+        enum: [ACTIVE, INACTIVE, CLOSED]
+    example:
+      customer_id: 1012
+      account_type: SAVINGS
+      balance: 7500
+      account_status: ACTIVE
+
+  # ============================================================
+  # KYC
+  # ============================================================
+
+  KYCVerification:
+    type: object
+    properties:
+      verification_id: integer
+      customer_id: integer
+      pan_verified: boolean
+      aadhaar_verified: boolean
+      verification_status: string
+      remarks?: string
+      verified_at?:
+        type: datetime
+      created_at:
+        type: datetime
+    example:
+      verification_id: 501
+      customer_id: 1012
+      pan_verified: true
+      aadhaar_verified: true
+      verification_status: VERIFIED
+      remarks: All documents matched
+      verified_at: "2026-08-09T19:00:00Z"
+      created_at: "2026-08-01T10:00:00Z"
+
+  KYCVerifyRequest:
+    type: object
+    description: |
+      Body for POST /kyc/verify. A KYC record for customer_id must already
+      exist (this endpoint updates that record's verification outcome —
+      it does not create a new KYC record). pan_verified, aadhaar_verified
+      and verification_status are all required. verification_status must
+      be one of PENDING, VERIFIED, FAILED.
+    properties:
+      customer_id: integer
+      pan_verified: boolean
+      aadhaar_verified: boolean
+      verification_status:
+        type: string
+        enum: [PENDING, VERIFIED, FAILED]
+      remarks?: string
+    example:
+      customer_id: 1012
+      pan_verified: true
+      aadhaar_verified: true
+      verification_status: VERIFIED
+      remarks: All documents matched
+
+  KYCUpdateRequest:
+    type: object
+    description: |
+      Body for PUT /kyc/{customerId}. customer_id comes from the path.
+      pan_verified, aadhaar_verified and verification_status are all
+      required. verification_status must be one of PENDING, VERIFIED,
+      FAILED.
+    properties:
+      pan_verified: boolean
+      aadhaar_verified: boolean
+      verification_status:
+        type: string
+        enum: [PENDING, VERIFIED, FAILED]
+      remarks?: string
+    example:
+      pan_verified: true
+      aadhaar_verified: false
+      verification_status: PENDING
+      remarks: Aadhaar document illegible, resubmission requested
+
+  # ============================================================
+  # DASHBOARD
+  # ============================================================
+
+  DashboardResponse:
+    type: object
+    description: |
+      Aggregated read model combining customer, accounts and KYC. pan and
+      aadhaar are masked (e.g. "XXXXXX8472M", "XXXX XXXX 1631"). kyc.remarks
+      and kyc.verifiedAt are only present when a KYC record exists;
+      otherwise kyc.verificationStatus is "NOT_AVAILABLE" and both verified
+      flags are false.
+    properties:
+      status:
+        type: string
+        enum: [SUCCESS]
+      customer:
+        type: object
+        properties:
+          customerId: integer
+          firstName: string
+          lastName: string
+          email: string
+          phone: string
+          pan?: string
+          aadhaar?: string
+          city?: string
+          state?: string
+      accountSummary:
+        type: object
+        properties:
+          totalAccounts: integer
+          activeAccounts: integer
+          totalBalance: number
+      accounts:
+        type: array
+        items:
+          type: object
+          properties:
+            accountNumber: integer
+            accountType: string
+            balance: number
+            status: string
+            createdAt?: string
+      kyc:
+        type: object
+        properties:
+          verificationStatus: string
+          panVerified: boolean
+          aadhaarVerified: boolean
+          remarks?: string
+          verifiedAt?: string
+    example:
+      status: SUCCESS
+      customer:
+        customerId: 1012
+        firstName: Arjun
+        lastName: TestCustomer
+        email: arjun.testcustomer.20260809.8472@example.com
+        phone: "9008472163"
+        pan: XXXXXX8472M
+        aadhaar: "XXXX XXXX 1631"
+        city: Hyderabad
+        state: Telangana
+      accountSummary:
+        totalAccounts: 2
+        activeAccounts: 2
+        totalBalance: 22500.50
+      accounts:
+        - accountNumber: 500123456
+          accountType: SAVINGS
+          balance: 15000.50
+          status: ACTIVE
+          createdAt: "2026-08-09T18:30:00"
+      kyc:
+        verificationStatus: VERIFIED
+        panVerified: true
+        aadhaarVerified: true
+        remarks: All documents matched
+        verifiedAt: "2026-08-09T19:00:00"
+
+  # ============================================================
+  # TRANSACTIONS
+  # ============================================================
+
+  Transaction:
+    type: object
+    properties:
+      transactionId: integer
+      transactionType:
+        type: string
+        enum: [DEPOSIT, WITHDRAW, TRANSFER, TRANSFER_IN]
+      amount: number
+      balanceAfterTransaction: number
+      remarks?: string
+      transactionDate: string
+    example:
+      transactionId: 9001
+      transactionType: DEPOSIT
+      amount: 2000
+      balanceAfterTransaction: 17000.50
+      remarks: Salary credit
+      transactionDate: "2026-08-09T20:15:00"
+
+  DepositRequest:
+    type: object
+    properties:
+      account_number: integer
+      amount:
+        type: number
+        minimum: 0.01
+      remarks?: string
+    example:
+      account_number: 500123456
+      amount: 2000
+      remarks: Salary credit
+
+  DepositResponse:
+    type: object
+    properties:
+      status:
+        type: string
+        enum: [SUCCESS]
+      message: string
+      transactionType:
+        type: string
+        enum: [DEPOSIT]
+      accountNumber: integer
+      depositedAmount: number
+      newBalance: number
+      remarks?: string
+    example:
+      status: SUCCESS
+      message: Deposit completed successfully
+      transactionType: DEPOSIT
+      accountNumber: 500123456
+      depositedAmount: 2000
+      newBalance: 17000.50
+      remarks: Salary credit
+
+  WithdrawRequest:
+    type: object
+    properties:
+      account_number: integer
+      amount:
+        type: number
+        minimum: 0.01
+      remarks?: string
+    example:
+      account_number: 500123456
+      amount: 1000
+      remarks: ATM withdrawal
+
+  WithdrawResponse:
+    type: object
+    properties:
+      status:
+        type: string
+        enum: [SUCCESS]
+      message: string
+      transactionType:
+        type: string
+        enum: [WITHDRAW]
+      accountNumber: integer
+      withdrawnAmount: number
+      remainingBalance: number
+      remarks?: string
+    example:
+      status: SUCCESS
+      message: Withdrawal completed successfully
+      transactionType: WITHDRAW
+      accountNumber: 500123456
+      withdrawnAmount: 1000
+      remainingBalance: 16000.50
+      remarks: ATM withdrawal
+
+  TransferRequest:
+    type: object
+    description: from_account and to_account must differ.
+    properties:
+      from_account: integer
+      to_account: integer
+      amount:
+        type: number
+        minimum: 0.01
+      remarks?: string
+    example:
+      from_account: 500123456
+      to_account: 500987654
+      amount: 3000
+      remarks: Rent payment
+
+  TransferResponse:
+    type: object
+    properties:
+      status:
+        type: string
+        enum: [SUCCESS]
+      message: string
+      transactionType:
+        type: string
+        enum: [TRANSFER]
+      fromAccount: integer
+      toAccount: integer
+      transferredAmount: number
+      senderRemainingBalance: number
+      receiverNewBalance: number
+      remarks?: string
+    example:
+      status: SUCCESS
+      message: Transfer completed successfully
+      transactionType: TRANSFER
+      fromAccount: 500123456
+      toAccount: 500987654
+      transferredAmount: 3000
+      senderRemainingBalance: 13000.50
+      receiverNewBalance: 8500
+      remarks: Rent payment

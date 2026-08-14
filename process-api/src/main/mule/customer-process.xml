@@ -1,0 +1,460 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <!--
+        NOTE: This file intentionally does NOT redefine
+        Process_HTTP_Listener_config, System_API_Request_config, or
+        capture-trace-id-subflow. Those global elements already exist in
+        process-api.xml within this same project, and Mule shares one
+        global registry across all files in a project. Redefining any of
+        them here would reproduce the "duplicate global name" deployment
+        error already fixed for Accounts.
+    -->
+
+    <!-- ================================= -->
+    <!-- ONBOARD CUSTOMER -->
+    <!-- POST /customers/onboard -->
+    <!-- ================================= -->
+
+    <flow name="process-onboard-customer-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/customers/onboard"
+                allowedMethods="POST"
+                doc:name="Onboard Customer">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding onboard-customer to System API"
+                doc:name="Logger"/>
+
+        <http:request
+                method="POST"
+                config-ref="System_API_Request_config"
+                path="/customers/onboard"
+                doc:name="Call System API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-onboard-customer-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-onboard-customer-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- GET ALL CUSTOMERS -->
+    <!-- GET /customers -->
+    <!-- ================================= -->
+
+    <flow name="process-get-all-customers-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/customers"
+                allowedMethods="GET"
+                doc:name="Get All Customers">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding get-all-customers to System API"
+                doc:name="Logger"/>
+
+        <http:request
+                method="GET"
+                config-ref="System_API_Request_config"
+                path="/customers"
+                doc:name="Call System API">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-get-all-customers-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-get-all-customers-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- GET CUSTOMER BY ID -->
+    <!-- GET /customers/{customerId} -->
+    <!-- ================================= -->
+
+    <flow name="process-get-customer-by-id-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/customers/{customerId}"
+                allowedMethods="GET"
+                doc:name="Get Customer By Id">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding get-customer #[attributes.uriParams.customerId]"
+                doc:name="Logger"/>
+
+        <http:request
+                method="GET"
+                config-ref="System_API_Request_config"
+                path="/customers/{customerId}"
+                doc:name="Call System API">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:uri-params><![CDATA[#[{'customerId': attributes.uriParams.customerId}]]]></http:uri-params>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-get-customer-by-id-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-get-customer-by-id-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- UPDATE CUSTOMER -->
+    <!-- PUT /customers/{customerId} -->
+    <!-- ================================= -->
+
+    <flow name="process-update-customer-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/customers/{customerId}"
+                allowedMethods="PUT"
+                doc:name="Update Customer">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding update-customer #[attributes.uriParams.customerId]"
+                doc:name="Logger"/>
+
+        <http:request
+                method="PUT"
+                config-ref="System_API_Request_config"
+                path="/customers/{customerId}"
+                doc:name="Call System API">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:uri-params><![CDATA[#[{'customerId': attributes.uriParams.customerId}]]]></http:uri-params>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-update-customer-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-update-customer-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+
+    <!-- ================================= -->
+    <!-- DELETE CUSTOMER -->
+    <!-- DELETE /customers/{customerId} -->
+    <!-- ================================= -->
+
+    <flow name="process-delete-customer-flow">
+
+        <http:listener
+                config-ref="Process_HTTP_Listener_config"
+                path="/customers/{customerId}"
+                allowedMethods="DELETE"
+                doc:name="Delete Customer">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 502]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <flow-ref name="capture-trace-id-subflow" doc:name="Capture Trace Id"/>
+
+        <logger
+                level="INFO"
+                message="Process API: forwarding delete-customer #[attributes.uriParams.customerId]"
+                doc:name="Logger"/>
+
+        <http:request
+                method="DELETE"
+                config-ref="System_API_Request_config"
+                path="/customers/{customerId}"
+                doc:name="Call System API">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.traceId}]]]></http:headers>
+            <http:uri-params><![CDATA[#[{'customerId': attributes.uriParams.customerId}]]]></http:uri-params>
+            <http:response-validator>
+                <http:success-status-code-validator values="0..599"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+                variableName="httpStatus"
+                value="#[attributes.statusCode]"
+                doc:name="Capture Downstream Status"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: vars.traceId,
+                    flow: 'process-delete-customer-flow',
+                    httpStatus: vars.httpStatus,
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: if (vars.httpStatus &lt; 400) 'SUCCESS' else 'DOWNSTREAM_ERROR'
+                }, 'application/json')]"
+                doc:name="Process Log"/>
+
+        <error-handler>
+            <on-error-continue
+                    type="HTTP:CONNECTIVITY, HTTP:TIMEOUT"
+                    enableNotifications="true"
+                    doc:name="System API Unreachable">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[503]"
+                        doc:name="Set 503"/>
+                <set-payload
+                        mimeType="application/json"
+                        value='#[{
+                            "status":"ERROR",
+                            "message":"System API is unavailable",
+                            "errorCode":"BANK-5031"
+                        }]'
+                        doc:name="Downstream Unavailable Response"/>
+                <logger
+                        level="ERROR"
+                        message="#[write({
+                            correlationId: vars.traceId,
+                            flow: 'process-delete-customer-flow',
+                            httpStatus: 503,
+                            outcome: 'SYSTEM_API_DOWN'
+                        }, 'application/json')]"
+                        doc:name="Connectivity Error Log"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+</mule>

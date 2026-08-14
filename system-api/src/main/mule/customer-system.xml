@@ -1,0 +1,870 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <configuration-properties file="config.properties" doc:name="Configuration Properties"/>
+
+    <!-- HTTP Listener -->
+    <http:listener-config
+            name="HTTP_Listener_config"
+            doc:name="HTTP Listener config">
+
+        <http:listener-connection
+                host="localhost"
+                port="8081"/>
+
+    </http:listener-config>
+
+
+    <!-- Database Configuration -->
+    <!-- Database Configuration -->
+    <db:config
+            name="Database_Config"
+            doc:name="Database Config">
+
+        <db:generic-connection
+                url="jdbc:postgresql://localhost:5432/banking_customer_onboarding"
+                driverClassName="org.postgresql.Driver"
+                user="${db.user}"
+                password="${db.password}"/>
+
+    </db:config>
+
+    <http:request-config name="Notification_Service_Request_config" doc:name="Notification Service Request Config">
+        <http:request-connection host="${notification.host}" port="${notification.port}"/>
+    </http:request-config>
+
+
+
+    <!-- ============================= -->
+    <!-- PHASE 1 : CREATE CUSTOMER -->
+    <!-- POST /customers/onboard -->
+    <!-- ============================= -->
+
+    <flow name="banking-customer-onboarding-apiFlow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/customers/onboard"
+                doc:name="HTTP Listener">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+
+        <logger
+                level="INFO"
+                message="Customer request received"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Required Fields">
+            <when expression="#[
+                isEmpty(trim(payload.first_name default '')) or
+                isEmpty(trim(payload.last_name default '')) or
+                isEmpty(trim(payload.email default ''))
+            ]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="first_name, last_name and email are required"
+                        doc:name="Missing Required Fields"/>
+            </when>
+            <when expression="#[not (trim(payload.email default '') matches /^[^\s@]+@[^\s@]+\.[^\s@]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="email must be a valid email address"
+                        doc:name="Invalid Email Format"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Store Request">
+            <ee:variables>
+                <ee:set-variable variableName="request"><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <db:select
+        config-ref="Database_Config"
+        doc:name="Check Duplicate Customer">
+
+    <db:sql><![CDATA[
+SELECT customer_id
+FROM banking.customers
+WHERE email = :email
+   OR phone = :phone
+   OR pan = :pan
+   OR aadhaar = :aadhaar;
+    ]]></db:sql>
+
+    <db:input-parameters><![CDATA[
+#[{
+    email: vars.request.email,
+    phone: vars.request.phone,
+    pan: vars.request.pan,
+    aadhaar: vars.request.aadhaar
+}]
+    ]]></db:input-parameters>
+
+</db:select>
+
+
+        <choice doc:name="Check Duplicate">
+            <when expression="#[sizeOf(payload default []) > 0]">
+                <raise-error
+                        type="BANKING:CONFLICT"
+                        description="A customer with the provided email, phone, PAN or Aadhaar already exists"
+                        doc:name="Duplicate Customer"/>
+            </when>
+        </choice>
+
+        <try doc:name="Safe Transform And Insert">
+
+            <ee:transform doc:name="Transform Message">
+
+                <ee:message>
+
+                    <ee:set-payload><![CDATA[
+%dw 2.0
+output application/java
+---
+{
+    first_name: vars.request.first_name,
+    last_name: vars.request.last_name,
+    email: vars.request.email,
+    phone: vars.request.phone,
+    date_of_birth: vars.request.date_of_birth as Date,
+    pan: vars.request.pan,
+    aadhaar: vars.request.aadhaar,
+    address_line: vars.request.address_line,
+    city: vars.request.city,
+    state: vars.request.state,
+    postal_code: vars.request.postal_code
+}
+                    ]]></ee:set-payload>
+
+                </ee:message>
+
+            </ee:transform>
+
+            <choice doc:name="Validate Minimum Age">
+                <when expression="#[
+                    payload.date_of_birth != null and
+                    ((payload.date_of_birth as Date) + |P18Y|) > (now() as Date)
+                ]">
+                    <raise-error
+                            type="VALIDATION:VALIDATION"
+                            description="Customer must be at least 18 years old"
+                            doc:name="Underage Customer"/>
+                </when>
+            </choice>
+
+            <db:insert
+                    config-ref="Database_Config"
+                    doc:name="Insert Customer">
+
+                <db:sql><![CDATA[
+INSERT INTO banking.customers
+(
+first_name,
+last_name,
+email,
+phone,
+date_of_birth,
+pan,
+aadhaar,
+address_line,
+city,
+state,
+postal_code
+)
+VALUES
+(
+:first_name,
+:last_name,
+:email,
+:phone,
+:date_of_birth,
+:pan,
+:aadhaar,
+:address_line,
+:city,
+:state,
+:postal_code
+)
+                ]]></db:sql>
+
+
+                <db:input-parameters><![CDATA[
+#[{
+    first_name: payload.first_name,
+    last_name: payload.last_name,
+    email: payload.email,
+    phone: payload.phone,
+    date_of_birth: payload.date_of_birth,
+    pan: payload.pan,
+    aadhaar: payload.aadhaar,
+    address_line: payload.address_line,
+    city: payload.city,
+    state: payload.state,
+    postal_code: payload.postal_code
+}]
+                ]]></db:input-parameters>
+
+
+            </db:insert>
+
+            <error-handler>
+                <on-error-propagate type="MULE:EXPRESSION" enableNotifications="true" doc:name="Invalid Field Format Handler">
+                    <raise-error
+                            type="VALIDATION:VALIDATION"
+                            description="date_of_birth must be a valid date (yyyy-MM-dd)"
+                            doc:name="Invalid Date Of Birth"/>
+                </on-error-propagate>
+            </error-handler>
+
+        </try>
+
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{
+                    "status":"SUCCESS",
+                    "message":"Customer inserted successfully"
+                }]'
+                doc:name="Success Response"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'banking-customer-onboarding-apiFlow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+
+
+    <!-- ============================= -->
+    <!-- PHASE 2 : GET ALL CUSTOMERS -->
+    <!-- GET /customers -->
+    <!-- ============================= -->
+
+
+    <flow name="get-all-customers-flow">
+
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/customers"
+                allowedMethods="GET"
+                doc:name="Get All Customers">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+
+        <logger
+                level="INFO"
+                message="Fetching all customers"
+                doc:name="Logger"/>
+
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Customers">
+
+
+            <db:sql><![CDATA[
+SELECT
+customer_id,
+first_name,
+last_name,
+email,
+phone,
+date_of_birth,
+pan,
+aadhaar,
+address_line,
+city,
+state,
+postal_code
+FROM banking.customers;
+            ]]></db:sql>
+
+
+        </db:select>
+
+
+
+        <ee:transform doc:name="Response Format">
+
+            <ee:message>
+
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+payload
+                ]]></ee:set-payload>
+
+            </ee:message>
+
+        </ee:transform>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'get-all-customers-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+
+    </flow>
+
+
+
+    <!-- ============================= -->
+    <!-- PHASE 2 : GET CUSTOMER BY ID -->
+    <!-- GET /customers/{customerId} -->
+    <!-- ============================= -->
+
+    <flow name="get-customer-by-id-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/customers/{customerId}"
+                allowedMethods="GET"
+                doc:name="Get Customer By ID">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Fetching customer #[attributes.uriParams.customerId]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Customer Id">
+            <when expression="#[not ((attributes.uriParams.customerId as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customerId must be a positive numeric value"
+                        doc:name="Invalid Customer Id"/>
+            </when>
+        </choice>
+
+        <db:select
+                config-ref="Database_Config"
+                doc:name="Fetch Customer">
+
+            <db:sql><![CDATA[
+SELECT
+customer_id,
+first_name,
+last_name,
+email,
+phone,
+date_of_birth,
+pan,
+aadhaar,
+address_line,
+city,
+state,
+postal_code
+FROM banking.customers
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: attributes.uriParams.customerId
+}]
+            ]]></db:input-parameters>
+
+        </db:select>
+
+        <choice doc:name="Check Customer Exists">
+            <when expression="#[isEmpty(payload)]">
+                <raise-error
+                        type="BANKING:CUSTOMER_NOT_FOUND"
+                        description="Customer not found"
+                        doc:name="Customer Missing"/>
+            </when>
+        </choice>
+
+        <ee:transform doc:name="Response Format">
+            <ee:message>
+                <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+payload[0]
+                ]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'get-customer-by-id-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+
+
+
+<!-- ============================= -->
+<!-- PHASE 3 : UPDATE CUSTOMER -->
+<!-- PUT /customers/{customerId} -->
+<!-- ============================= -->
+
+<flow name="update-customer-flow">
+
+    <http:listener
+            config-ref="HTTP_Listener_config"
+            path="/customers/{customerId}"
+            allowedMethods="PUT"
+            doc:name="Update Customer">
+        <http:response statusCode="#[vars.httpStatus default 200]">
+            <http:body>#[payload]</http:body>
+        </http:response>
+        <http:error-response statusCode="#[vars.httpStatus default 500]">
+            <http:body>#[payload]</http:body>
+        </http:error-response>
+    </http:listener>
+
+    <set-variable
+            variableName="startTime"
+            value="#[now()]"
+            doc:name="Start Timer"/>
+
+    <logger
+            level="INFO"
+            message="Updating customer #[attributes.uriParams.customerId]"
+            doc:name="Logger"/>
+
+    <ee:transform doc:name="Store Request">
+        <ee:variables>
+            <ee:set-variable variableName="request"><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+        </ee:variables>
+    </ee:transform>
+
+    <set-variable
+            variableName="customerId"
+            value="#[attributes.uriParams.customerId]"
+            doc:name="Store Customer ID"/>
+
+    <choice doc:name="Validate Customer Id">
+        <when expression="#[not ((vars.customerId as String) matches /^[0-9]+$/)]">
+            <raise-error
+                    type="VALIDATION:VALIDATION"
+                    description="customerId must be a positive numeric value"
+                    doc:name="Invalid Customer Id"/>
+        </when>
+    </choice>
+
+    <choice doc:name="Validate Required Fields">
+       <when expression="#[
+    isEmpty(trim(vars.request.first_name default '')) or
+    isEmpty(trim(vars.request.last_name default '')) or
+    isEmpty(trim(vars.request.email default '')) or
+    isEmpty(trim(vars.request.phone default '')) or
+    isEmpty(trim(vars.request.address_line default '')) or
+    isEmpty(trim(vars.request.city default '')) or
+    isEmpty(trim(vars.request.state default '')) or
+    isEmpty(trim(vars.request.postal_code default ''))
+]">
+            <raise-error
+                    type="VALIDATION:VALIDATION"
+                    description="first_name, last_name, email, phone, address_line, city, state and postal_code are all required"
+                    doc:name="Missing Required Fields"/>
+        </when>
+    </choice>
+
+    <choice doc:name="Validate Email Format">
+        <when expression="#[not (trim(vars.request.email default '') matches /^[^\s@]+@[^\s@]+\.[^\s@]+$/)]">
+            <raise-error
+                    type="VALIDATION:VALIDATION"
+                    description="email must be a valid email address"
+                    doc:name="Invalid Email Format"/>
+        </when>
+    </choice>
+
+    <!-- ================================= -->
+    <!-- CHECK CUSTOMER EXISTS FIRST -->
+    <!-- ================================= -->
+
+    <db:select
+            config-ref="Database_Config"
+            doc:name="Check Customer Exists">
+
+        <db:sql><![CDATA[
+SELECT customer_id
+FROM banking.customers
+WHERE customer_id = :customerId;
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.customerId
+}]
+        ]]></db:input-parameters>
+
+    </db:select>
+
+    <choice doc:name="Check Customer Exists">
+
+        <when expression="#[isEmpty(payload)]">
+
+            <raise-error
+                    type="BANKING:CUSTOMER_NOT_FOUND"
+                    description="Customer not found"
+                    doc:name="Customer Missing"/>
+
+        </when>
+
+    </choice>
+
+
+    <!-- ================================= -->
+    <!-- CHECK DUPLICATE EMAIL / PHONE -->
+    <!-- ================================= -->
+
+    <db:select
+            config-ref="Database_Config"
+            doc:name="Check Duplicate Email Or Phone">
+
+        <db:sql><![CDATA[
+SELECT customer_id
+FROM banking.customers
+WHERE (email = :email
+   OR phone = :phone)
+  AND customer_id <> CAST(:customerId AS INTEGER);
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+#[{
+    email: vars.request.email default "",
+    phone: vars.request.phone default "",
+    customerId: vars.customerId
+}]
+        ]]></db:input-parameters>
+
+    </db:select>
+
+    <choice doc:name="Check Duplicate">
+
+        <when expression="#[sizeOf(payload default []) > 0]">
+
+            <raise-error
+                    type="BANKING:CONFLICT"
+                    description="Another customer already uses the provided email or phone"
+                    doc:name="Duplicate Email Or Phone"/>
+
+        </when>
+
+    </choice>
+
+
+    <!-- ================================= -->
+    <!-- UPDATE CUSTOMER -->
+    <!-- ================================= -->
+
+<db:update
+        config-ref="Database_Config"
+        doc:name="Update Customer">
+
+    <db:sql><![CDATA[
+UPDATE banking.customers
+SET
+    first_name = :first_name,
+    last_name = :last_name,
+    email = :email,
+    phone = :phone,
+    address_line = :address_line,
+    city = :city,
+    state = :state,
+    postal_code = :postal_code,
+    updated_at = CURRENT_TIMESTAMP
+WHERE customer_id = CAST(:customerId AS INTEGER);
+    ]]></db:sql>
+
+    <db:input-parameters><![CDATA[
+#[{
+    customerId: vars.customerId,
+    first_name: vars.request.first_name,
+    last_name: vars.request.last_name,
+    email: vars.request.email,
+    phone: vars.request.phone,
+    address_line: vars.request.address_line,
+    city: vars.request.city,
+    state: vars.request.state,
+    postal_code: vars.request.postal_code
+}]
+    ]]></db:input-parameters>
+
+</db:update>
+
+
+    <!-- ================================= -->
+    <!-- SUCCESS -->
+    <!-- ================================= -->
+
+    <set-variable
+            variableName="httpStatus"
+            value="#[200]"
+            doc:name="Set Success Status"/>
+
+    <set-payload
+            mimeType="application/json"
+            value='#[{
+                "status":"SUCCESS",
+                "message":"Customer updated successfully"
+            }]'
+            doc:name="Success Response"/>
+
+    <logger
+            level="INFO"
+            message="#[write({
+                correlationId: correlationId,
+                flow: 'update-customer-flow',
+                httpStatus: (vars.httpStatus default 200),
+                durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                outcome: 'SUCCESS'
+            }, 'application/json')]"
+            doc:name="Success Log"/>
+
+
+    <!-- ================================= -->
+    <!-- ERROR HANDLER -->
+    <!-- ================================= -->
+
+    <error-handler>
+
+        <on-error-propagate enableNotifications="true">
+
+            <flow-ref
+                    name="global-error-response-subflow"
+                    doc:name="Build Error Response"/>
+
+        </on-error-propagate>
+
+    </error-handler>
+
+</flow>
+
+    <!-- ============================= -->
+    <!-- PHASE 4 : DELETE CUSTOMER -->
+    <!-- DELETE /customers/{customerId} -->
+    <!-- ============================= -->
+
+    <flow name="delete-customer-flow">
+
+        <http:listener
+                config-ref="HTTP_Listener_config"
+                path="/customers/{customerId}"
+                allowedMethods="DELETE"
+                doc:name="Delete Customer">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+                variableName="startTime"
+                value="#[now()]"
+                doc:name="Start Timer"/>
+
+        <logger
+                level="INFO"
+                message="Deleting customer #[attributes.uriParams.customerId]"
+                doc:name="Logger"/>
+
+        <choice doc:name="Validate Customer Id">
+            <when expression="#[not ((attributes.uriParams.customerId as String) matches /^[0-9]+$/)]">
+                <raise-error
+                        type="VALIDATION:VALIDATION"
+                        description="customerId must be a positive numeric value"
+                        doc:name="Invalid Customer Id"/>
+            </when>
+        </choice>
+
+        <db:delete
+                config-ref="Database_Config"
+                doc:name="Delete Customer">
+
+            <db:sql><![CDATA[
+DELETE FROM banking.customers
+WHERE customer_id = :customerId;
+            ]]></db:sql>
+
+            <db:input-parameters><![CDATA[
+#[{
+    customerId: attributes.uriParams.customerId
+}]
+            ]]></db:input-parameters>
+
+        </db:delete>
+
+        <set-variable
+                variableName="rowsAffected"
+                value="#[
+                    do {
+                        var result = payload
+                        ---
+                        if (result is Number) result as Number
+                        else if (result is Object and result.affectedRows?) result.affectedRows as Number
+                        else if (result is Array and not isEmpty(result) and (result[0] is Number)) result[0] as Number
+                        else if (result == null) 0
+                        else 0
+                    }
+                ]"
+                doc:name="Normalize Affected Rows"/>
+
+        <choice doc:name="Check Customer Deleted">
+            <when expression="#[vars.rowsAffected == 0]">
+                <raise-error
+                        type="BANKING:CUSTOMER_NOT_FOUND"
+                        description="Customer not found"
+                        doc:name="Customer Missing"/>
+            </when>
+        </choice>
+
+        <set-payload
+                mimeType="application/json"
+                value='#[{
+                    "status":"SUCCESS",
+                    "message":"Customer deleted successfully"
+                }]'
+                doc:name="Success Response"/>
+
+        <logger
+                level="INFO"
+                message="#[write({
+                    correlationId: correlationId,
+                    flow: 'delete-customer-flow',
+                    httpStatus: (vars.httpStatus default 200),
+                    durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startTime as Number {unit: 'milliseconds'}),
+                    outcome: 'SUCCESS'
+                }, 'application/json')]"
+                doc:name="Success Log"/>
+
+        <error-handler>
+            <on-error-propagate
+                    type="DB:QUERY_EXECUTION"
+                    when="#[((error.description default '') contains 'foreign key') or ((error.description default '') contains 'violates foreign key constraint')]"
+                    enableNotifications="true"
+                    doc:name="FK Violation Handler">
+                <set-variable
+                        variableName="httpStatus"
+                        value="#[409]"
+                        doc:name="Set 409"/>
+                <ee:transform doc:name="Build FK Conflict Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    status: "FAILED",
+    errorCode: "BANK-4092",
+    message: "Customer cannot be deleted because associated accounts or KYC records exist",
+    timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss"},
+    correlationId: correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate enableNotifications="true">
+                <flow-ref
+                        name="global-error-response-subflow"
+                        doc:name="Build Error Response"/>
+            </on-error-propagate>
+        </error-handler>
+
+    </flow>
+    </mule>
