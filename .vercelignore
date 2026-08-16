@@ -1,0 +1,8 @@
+# Maven/Mule build artifacts — not needed for the static simulator deploy
+**/target/
+*.jar
+*.class
+.mule/
+.settings/
+.project
+.classpath
