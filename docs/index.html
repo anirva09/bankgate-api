@@ -312,11 +312,13 @@
     color:#fff;
   }
   .landing-inner{max-width:1180px; margin:0 auto; padding:64px 32px 60px; display:grid; grid-template-columns:0.95fr 1.05fr; gap:40px; align-items:center; min-height:100vh;}
+  .landing-inner > div:first-child{min-width:0;}
   @media (max-width:980px){ .landing-inner{grid-template-columns:1fr; padding:48px 22px 40px; min-height:auto;} }
   .landing-word{display:flex; align-items:center; gap:12px; font-weight:900; font-size:22px; letter-spacing:-0.02em; margin-bottom:28px;}
   .landing-h1{font-size:clamp(30px,4vw,46px); font-weight:900; letter-spacing:-0.03em; line-height:1.1; margin:0 0 16px;}
   .landing-sub{color:#A9B4C9; font-size:15.5px; line-height:1.6; max-width:440px; margin:0 0 22px;}
   .landing-sim-note{display:flex; gap:9px; align-items:flex-start; background:rgba(95,168,245,0.14); border:1px solid rgba(95,168,245,0.32); border-radius:12px; padding:12px 14px; font-size:12.5px; color:#BFD8FF; line-height:1.55; margin-bottom:26px; max-width:440px;}
+  .landing-sim-note span{min-width:0;}
   .landing-sim-note svg{flex-shrink:0; margin-top:1px;}
   .landing-sim-note b{color:#fff;}
   .landing-btn{padding:14px 30px; border-radius:999px; font-weight:700; font-size:14.5px; cursor:pointer; border:none; transition:transform .15s ease; background:#fff; color:#0A1120; box-shadow:0 14px 34px rgba(0,0,0,0.35);}
