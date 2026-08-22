@@ -40,6 +40,16 @@
     --font-body:-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Helvetica Neue', Arial, sans-serif;
     --font-mono:var(--font-body);
     --ease:cubic-bezier(.32,.72,0,1);
+    /* Motion tokens — shared across every micro-interaction so the whole
+       app moves with one consistent hand. --ease-tap is a fast, no-overshoot
+       curve for press states (finger down, immediate response). --spring
+       is a slight-overshoot curve reserved for things that "arrive"
+       (sheets, drawers) so they settle like a real spring instead of
+       stopping dead. */
+    --ease-tap:cubic-bezier(.4,0,.2,1);
+    --spring:cubic-bezier(.34,1.56,.64,1);
+    --dur-tap:120ms;
+    --dur-sheet:280ms;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html{color-scheme:light only; background:var(--bg); height:100%;}
@@ -57,7 +67,7 @@
   header.topbar{position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.92); backdrop-filter:blur(14px) saturate(180%); border-bottom:1px solid var(--card-border); padding-top:env(safe-area-inset-top);}
   .topbar-inner{display:flex; align-items:center; justify-content:space-between; height:56px; padding:0 20px; gap:10px;}
   @media (max-width:480px){ .topbar-inner{padding:0 14px; height:52px;} }
-  .wordmark{display:flex; align-items:center; gap:10px; font-weight:900; font-size:19px; letter-spacing:-0.02em; color:var(--text-primary); min-width:0;}
+  .wordmark{display:flex; align-items:center; gap:10px; font-weight:700; font-size:19px; letter-spacing:-0.02em; color:var(--text-primary); min-width:0;}
   .wordmark small{font-family:var(--font-body); font-size:11px; font-weight:400; color:var(--text-muted); letter-spacing:0.04em; margin-left:4px;}
   .logo-badge{width:32px; height:32px; border-radius:9px; background:#0A1120; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
   .logo-badge svg{display:block;}
@@ -65,8 +75,9 @@
   @media (max-width:480px){ .wordmark{font-size:13.5px;} .wordmark small{display:none;} }
   .mode-badge{display:flex; align-items:center; gap:6px; font-size:11px; letter-spacing:0.04em; color:var(--accent-dim); background:var(--accent-wash); border:1px solid #CFE0FF; padding:6px 12px; border-radius:999px; font-weight:700;}
   .mode-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);}
-  .reset-btn{font-size:11px; color:var(--text-secondary); background:transparent; border:1px solid var(--card-border); padding:6px 12px; border-radius:999px; cursor:pointer;}
+  .reset-btn{font-size:11px; color:var(--text-secondary); background:transparent; border:1px solid var(--card-border); padding:6px 12px; border-radius:999px; cursor:pointer; transition:color .15s ease, border-color .15s ease, transform var(--dur-tap) var(--ease-tap);}
   .reset-btn:hover{color:var(--text-primary); border-color:var(--text-muted);}
+  .reset-btn:active{transform:scale(0.96);}
   @media (max-width:480px){
     .reset-btn{padding:6px 9px; font-size:10px;}
     .mode-badge{padding:6px 9px; font-size:10px;}
@@ -88,17 +99,20 @@
     }
     .side-nav::-webkit-scrollbar{display:none;}
   }
-  .nav-group-label{font-size:11.5px; font-weight:800; letter-spacing:0.07em; text-transform:uppercase; color:var(--text-muted); padding:14px 12px 8px;}
+  .nav-group-label{font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); padding:14px 12px 8px;}
   .nav-group-label:not(:first-child){padding-top:26px;}
   @media (max-width:960px){ .nav-group-label{display:none;} }
   .nav-item{
     display:flex; align-items:center; gap:9px; width:100%; text-align:left; padding:9px 12px; border-radius:10px; border:none;
-    background:transparent; color:var(--text-secondary); font-size:13.5px; font-weight:600; cursor:pointer; transition:background .15s ease, color .15s ease;
+    background:transparent; color:var(--text-secondary); font-size:13.5px; font-weight:600; cursor:pointer;
+    transition:background .15s ease, color .15s ease, transform var(--dur-tap) var(--ease-tap);
     white-space:nowrap;
   }
   @media (max-width:960px){ .nav-item{width:auto; flex-shrink:0;} }
   .nav-item:hover{background:var(--bg-subtle); color:var(--text-primary);}
+  .nav-item:active{transform:scale(0.97);}
   .nav-item.is-active{background:var(--text-primary); color:#fff;}
+  .nav-item.is-active:active{transform:scale(0.97);}
   .nav-item.is-disabled{color:var(--text-muted); cursor:default; position:relative;}
   .nav-item.is-disabled:hover{background:transparent; color:var(--text-muted);}
   .nav-item.is-disabled:hover .soon-tip{opacity:1; transform:translateY(0);}
@@ -109,35 +123,62 @@
   @media (min-width:961px){ .main-col{height:calc(100vh - 60px); height:calc(100dvh - 60px); overflow-y:auto; -webkit-overflow-scrolling:touch;} }
   @media (max-width:720px){ .main-col{padding:20px 16px 48px;} }
   .view-panel{display:none;}
-  .view-panel.is-active{display:block; animation:viewIn .25s var(--ease);}
-  @keyframes viewIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .view-panel.is-active{display:block; animation:viewIn .2s var(--ease-tap);}
+  @keyframes viewIn{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);} }
   .view-head{margin-bottom:20px;}
-  .view-head h1{font-size:28px; font-weight:900; letter-spacing:-0.025em; margin:0 0 6px; color:var(--text-primary);}
-  .view-head p{color:var(--text-secondary); font-size:14px; margin:0; max-width:520px;}
+  .view-head h1{font-size:28px; font-weight:700; letter-spacing:-0.02em; margin:0 0 6px; color:var(--text-primary);}
+  .view-head p{color:var(--text-secondary); font-size:13px; line-height:1.55; margin:0; max-width:520px;}
 
   /* ---------- shared card ---------- */
-  .card{background:var(--card); border:1px solid var(--card-border); box-shadow:var(--shadow-card); border-radius:var(--radius-lg); padding:28px 28px 30px; margin-bottom:20px; transition:box-shadow .3s var(--ease);}
+  .card{background:var(--card); border:1px solid var(--card-border); box-shadow:var(--shadow-card); border-radius:var(--radius-lg); padding:28px 28px 30px; margin-bottom:20px; transition:box-shadow .3s var(--ease), transform var(--dur-tap) var(--ease-tap); will-change:transform;}
   .card:hover{box-shadow:var(--shadow-hover);}
-  .card-eyebrow{font-size:11px; color:var(--text-muted); letter-spacing:0.06em; text-transform:uppercase; margin:0 0 4px;}
-  .card-title{font-weight:800; font-size:20px; letter-spacing:-0.01em; margin:0 0 18px; color:var(--text-primary);}
+  /* .is-pressed is applied by JS only when the press lands on the card's
+     own surface, not on a button/link/row inside it — see the press-
+     feedback script at the end of the file. That keeps a "+ New customer"
+     button's own 0.97 press from compounding with the card's 0.98. */
+  .card.is-pressed{transform:scale(0.98);}
+  .card-eyebrow{font-size:11px; font-weight:600; color:var(--text-muted); letter-spacing:0.06em; text-transform:uppercase; margin:0 0 4px;}
+  .card-title{font-weight:600; font-size:20px; letter-spacing:-0.015em; margin:0 0 18px; color:var(--text-primary);}
 
   /* ---------- overview ---------- */
   .stat-row{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px;}
   @media (max-width:640px){ .stat-row{grid-template-columns:repeat(2,1fr);} }
   .stat-card{background:var(--card); border:1px solid var(--card-border); border-radius:16px; padding:18px 20px;}
-  .stat-num{font-size:28px; font-weight:900; letter-spacing:-0.02em;}
+  .stat-num{font-size:28px; font-weight:700; letter-spacing:-0.02em;}
   .stat-label{font-size:12px; color:var(--text-secondary); font-weight:600; margin-top:2px;}
+
+  /* Dashboard KPI strip: one continuous, unified surface instead of
+     four separate boxes each asserting their own border/shadow. The
+     numbers are the focus; the card itself should recede. Internal
+     1px dividers (not full card borders) separate the four metrics,
+     the way Stripe's own summary row treats related figures as one
+     group rather than four competing widgets. */
+  .kpi-strip{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:0;
+    background:var(--card); border:1px solid var(--card-border);
+    border-radius:16px; overflow:hidden; margin-bottom:22px;
+  }
+  .kpi-strip .stat-card{
+    background:transparent; border:none; border-radius:0;
+    padding:16px 20px;
+  }
+  .kpi-strip .stat-card:not(:last-child){
+    border-right:1px solid var(--card-border);
+  }
+  .kpi-strip .stat-num{ font-size:26px; letter-spacing:-0.02em; }
+  .kpi-strip .stat-label{ font-size:13px; margin-top:3px; }
+
   .overview-list-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
   .overview-row{display:flex; flex-wrap:wrap; align-items:center; gap:14px; padding:14px 4px; border-bottom:1px solid var(--card-border);}
   .overview-row:last-child{border-bottom:none;}
   .ov-id{color:var(--accent); font-weight:700; font-size:13px; min-width:82px;}
-  .ov-name{font-weight:700; font-size:13.5px; flex:1; min-width:120px;}
+  .ov-name{font-weight:600; font-size:16px; letter-spacing:-0.01em; flex:1; min-width:120px;}
   .ov-tag{font-size:11px; font-weight:700; padding:4px 9px; border-radius:999px;}
   .ov-tag.verified{background:var(--sage-wash); color:#158A54;}
   .ov-tag.pending{background:#FFF4E5; color:#B26A00;}
   .ov-tag.rejected{background:var(--rust-wash); color:var(--rust);}
   .ov-tag.none{background:var(--bg-subtle); color:var(--text-muted);}
-  .ov-meta{font-size:12px; color:var(--text-secondary);}
+  .ov-meta{font-size:13px; color:var(--text-secondary);}
 
   /* ---------- form ---------- */
   .field-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
@@ -150,9 +191,9 @@
   .field input:focus{background:#fff;}
   .field-error{font-size:12px; color:var(--rust); margin-top:8px; min-height:14px;}
   .btn-row{display:flex; gap:10px; margin-top:6px; flex-wrap:wrap;}
-  .btn{font-size:13.5px; font-weight:600; padding:12px 20px; border-radius:999px; border:1.5px solid var(--text-primary); background:#fff; color:var(--text-primary); cursor:pointer; transition:all .18s var(--ease);}
+  .btn{font-size:13.5px; font-weight:600; padding:12px 20px; border-radius:999px; border:1.5px solid var(--text-primary); background:#fff; color:var(--text-primary); cursor:pointer; transition:background .18s var(--ease), transform var(--dur-tap) var(--ease-tap), opacity var(--dur-tap) var(--ease-tap);}
   .btn:hover{background:var(--bg-subtle); transform:translateY(-1px);}
-  .btn:active{transform:translateY(0) scale(0.97);}
+  .btn:active{transform:translateY(0) scale(0.97); opacity:0.92;}
   .btn-primary{background:var(--text-primary); border-color:var(--text-primary); color:#fff; box-shadow:0 8px 20px -8px rgba(0,0,0,0.35);}
   .link-btn{background:none; border:none; padding:0; margin:0; font:inherit; font-weight:700; color:var(--text-primary); text-decoration:underline; text-underline-offset:2px; cursor:pointer;}
   .btn-primary:hover{background:#000; box-shadow:0 10px 26px -8px rgba(0,0,0,0.45);}
@@ -179,16 +220,17 @@
   .sim-note b{color:var(--text-primary);}
 
   .win-chrome{display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;}
-  .win-title{font-weight:800; font-size:15.5px; letter-spacing:-0.01em;}
+  .win-title{font-weight:600; font-size:16px; letter-spacing:-0.01em;}
   .win-hint{font-size:11px; color:var(--text-muted);}
 
   .flow-row{display:flex; flex-direction:column;}
-  .flow-node{width:100%; display:flex; flex-direction:row; align-items:center; text-align:left; gap:13px; padding:10px; border-radius:13px; border:1px solid transparent; cursor:pointer; transition:border-color .2s ease, box-shadow .2s ease, background .2s ease;}
+  .flow-node{width:100%; display:flex; flex-direction:row; align-items:center; text-align:left; gap:13px; padding:10px; border-radius:13px; border:1px solid transparent; cursor:pointer; transition:border-color .2s ease, box-shadow .2s ease, background .2s ease, transform var(--dur-tap) var(--ease-tap);}
+  .flow-node[role="button"]:active{transform:scale(0.98);}
   .flow-node:hover{border-color:var(--accent); background:var(--bg-subtle);}
   .flow-icon{width:36px; height:36px; border-radius:10px; background:var(--accent-wash); color:var(--accent-dim); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
   .flow-icon svg{width:19px; height:19px;}
   .flow-text{flex:1; min-width:0;}
-  .flow-title{font-weight:700; font-size:13px; margin-bottom:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .flow-title{font-weight:600; font-size:13.5px; letter-spacing:-0.005em; margin-bottom:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .flow-sub{font-size:11px; color:var(--text-secondary); line-height:1.4;}
   .node-latency{font-size:10.5px; font-weight:800; color:var(--text-muted); flex-shrink:0; margin-left:6px; opacity:0; transform:translateY(-2px); transition:opacity .2s ease, transform .2s ease;}
   .node-latency.show{opacity:1; transform:translateY(0);}
@@ -227,37 +269,38 @@
   .log-row.err{box-shadow:var(--rust-glow); padding-left:10px; padding-right:10px; border-radius:8px;}
   .log-row.err .log-icon{background:var(--rust-wash); color:var(--rust);}
   .log-body{flex:1; min-width:0;}
-  .log-title{font-weight:600; font-size:13.5px;}
-  .log-sub{font-size:12px; color:var(--text-secondary); margin-top:1px;}
+  .log-title{font-weight:600; font-size:16px; letter-spacing:-0.01em;}
+  .log-sub{font-size:13px; color:var(--text-secondary); margin-top:1px;}
   .log-right{display:flex; align-items:center; gap:8px; flex-shrink:0;}
   .log-time{font-size:11px; color:var(--text-muted);}
   .result-tick{width:16px; height:16px; border-radius:50%; background:var(--sage); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
   .result-tick svg{width:9px; height:9px;}
   .result-tick.err{background:var(--rust);}
 
-  .gov-title{font-weight:800; font-size:14.5px; margin:0 0 14px;}
+  .gov-title{font-weight:600; font-size:16px; letter-spacing:-0.01em; margin:0 0 14px;}
   .gov-row{display:grid; grid-template-columns:1.3fr 0.8fr; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--card-border); font-size:12.5px;}
   .gov-row:last-child{border-bottom:none;}
   .gov-label{display:flex; align-items:center; gap:9px; font-weight:600;}
   .gov-icon{width:18px; height:18px; color:var(--accent-dim); flex-shrink:0;}
   .gov-status{display:flex; align-items:center; gap:6px; color:#158A54; font-weight:600; font-size:12px; justify-self:end;}
   .gov-status .dot{width:7px; height:7px; border-radius:50%; background:#158A54;}
-  .gov-detail{grid-column:1/-1; color:var(--text-secondary); font-size:11.5px;}
+  .gov-detail{grid-column:1/-1; color:var(--text-secondary); font-size:12.5px;}
 
   .test-card{display:flex; flex-direction:column; align-items:center; text-align:center;}
-  .test-title{font-weight:800; font-size:14.5px; align-self:flex-start; margin:0 0 16px;}
+  .test-title{font-weight:600; font-size:16px; letter-spacing:-0.01em; align-self:flex-start; margin:0 0 16px;}
   .donut-wrap{position:relative; width:130px; height:130px; margin-bottom:12px;}
   .donut-wrap svg{transform:rotate(-90deg); overflow:visible;}
   .donut-seg{cursor:pointer; transition:opacity .22s ease, filter .22s ease;}
   .donut-seg:hover, .donut-seg.is-active{filter:drop-shadow(0 2px 6px rgba(10,102,255,0.35));}
   .donut-center{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none;}
-  .donut-num{font-weight:900; font-size:25px; line-height:1; letter-spacing:-0.02em;}
+  .donut-num{font-weight:700; font-size:25px; line-height:1; letter-spacing:-0.02em;}
   .donut-den{font-size:11px; color:var(--text-secondary); margin-top:2px; font-weight:600;}
-  .test-caption{font-weight:700; font-size:13px; margin-bottom:4px; min-height:18px;}
-  .test-stats{display:flex; gap:16px; font-size:11.5px; color:var(--text-secondary); margin-bottom:14px;}
+  .test-caption{font-weight:600; font-size:13px; margin-bottom:4px; min-height:18px;}
+  .test-stats{display:flex; gap:16px; font-size:12px; color:var(--text-secondary); margin-bottom:14px;}
   .test-stats b{color:var(--text-primary);}
   .donut-legend{display:flex; flex-direction:column; gap:4px; width:100%;}
-  .legend-row{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-radius:10px; cursor:pointer; transition:background .18s ease; font-size:12px; border:1px solid transparent;}
+  .legend-row{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-radius:10px; cursor:pointer; transition:background .18s ease, transform var(--dur-tap) var(--ease-tap); font-size:12px; border:1px solid transparent;}
+  .legend-row:active{transform:scale(0.97);}
   .legend-row:hover{background:var(--bg-subtle);}
   .legend-row.is-active{background:var(--accent-wash); border-color:#CFE0FF;}
   .legend-left{display:flex; align-items:center; gap:8px; font-weight:600; color:var(--text-primary);}
@@ -267,32 +310,33 @@
 
   /* ---------- database viewer ---------- */
   .db-table{border:1px solid var(--card-border); border-radius:12px; margin-bottom:8px; overflow:hidden;}
-  .db-table-head{display:flex; align-items:center; justify-content:space-between; padding:12px 14px; cursor:pointer; background:var(--bg-subtle);}
-  .db-table-name{font-weight:700; font-size:13px; font-family:'SF Mono', ui-monospace, Menlo, monospace;}
-  .db-table-desc{font-size:11.5px; color:var(--text-secondary); margin-top:1px;}
+  .db-table-head{display:flex; align-items:center; justify-content:space-between; padding:12px 14px; cursor:pointer; background:var(--bg-subtle); transition:background .15s ease, transform var(--dur-tap) var(--ease-tap);}
+  .db-table-head:active{transform:scale(0.98);}
+  .db-table-name{font-weight:600; font-size:14px; font-family:'SF Mono', ui-monospace, Menlo, monospace;}
+  .db-table-desc{font-size:12.5px; color:var(--text-secondary); margin-top:1px;}
   .db-chev{color:var(--text-muted); transition:transform .2s ease; flex-shrink:0;}
   .db-table.is-open .db-chev{transform:rotate(180deg);}
   .db-table-body{display:none; padding:4px 14px 12px;}
   .db-table.is-open .db-table-body{display:block;}
   .db-col{font-size:12px; color:var(--text-secondary); padding:5px 0; font-family:'SF Mono', ui-monospace, Menlo, monospace; border-top:1px solid var(--card-border);}
   .db-col:first-child{border-top:none;}
-  .db-rel{font-size:12px; color:var(--text-secondary); line-height:2; margin-top:8px; padding-top:10px; border-top:1px dashed var(--card-border);}
+  .db-rel{font-size:12.5px; color:var(--text-secondary); line-height:2; margin-top:8px; padding-top:10px; border-top:1px dashed var(--card-border);}
   .db-rel b{color:var(--text-primary);}
 
   /* ---------- side panel ---------- */
   .panel-backdrop{position:fixed; inset:0; background:rgba(20,20,30,0.28); opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:60;}
   .panel-backdrop.is-open{opacity:1; pointer-events:auto;}
-  .side-panel{position:fixed; top:0; right:0; height:100vh; width:360px; max-width:88vw; background:#fff; box-shadow:var(--shadow-panel); z-index:61; transform:translateX(100%); transition:transform .3s var(--ease); display:flex; flex-direction:column;}
+  .side-panel{position:fixed; top:0; right:0; height:100vh; width:360px; max-width:88vw; background:#fff; box-shadow:var(--shadow-panel); z-index:61; transform:translateX(100%); transition:transform .26s var(--ease-tap); display:flex; flex-direction:column;}
   .side-panel.is-open{transform:translateX(0);}
   .side-panel-head{display:flex; align-items:center; justify-content:space-between; padding:20px 22px; border-bottom:1px solid var(--card-border);}
-  .side-panel-head span{font-weight:700; font-size:14px;}
+  .side-panel-head span{font-weight:600; font-size:14px;}
   .side-panel-close{width:30px; height:30px; border-radius:50%; border:1px solid var(--card-border); background:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-secondary);}
   .side-panel-close:hover{background:var(--bg-subtle);}
   .side-panel-body{padding:22px; overflow-y:auto;}
   .sp-icon{width:46px; height:46px; border-radius:12px; background:var(--accent-wash); color:var(--accent-dim); display:flex; align-items:center; justify-content:center; margin-bottom:14px;}
   .sp-icon svg{width:24px; height:24px;}
-  .sp-title{font-weight:800; font-size:19px; margin:0 0 4px;}
-  .sp-sub{font-size:11.5px; color:var(--text-muted); margin:0 0 14px;}
+  .sp-title{font-weight:600; font-size:20px; letter-spacing:-0.015em; margin:0 0 4px;}
+  .sp-sub{font-size:12.5px; color:var(--text-muted); margin:0 0 14px;}
   .sp-body{font-size:14px; color:#3A3A3F; line-height:1.65; margin:0;}
   .sp-placeholder{color:var(--text-muted); font-size:13px; padding:22px;}
 
@@ -314,8 +358,8 @@
   .landing-inner{max-width:1180px; margin:0 auto; padding:64px 32px 60px; display:grid; grid-template-columns:0.95fr 1.05fr; gap:40px; align-items:center; min-height:100vh;}
   .landing-inner > div:first-child{min-width:0;}
   @media (max-width:980px){ .landing-inner{grid-template-columns:1fr; padding:48px 22px 40px; min-height:auto;} }
-  .landing-word{display:flex; align-items:center; gap:12px; font-weight:900; font-size:22px; letter-spacing:-0.02em; margin-bottom:28px;}
-  .landing-h1{font-size:clamp(30px,4vw,46px); font-weight:900; letter-spacing:-0.03em; line-height:1.1; margin:0 0 16px;}
+  .landing-word{display:flex; align-items:center; gap:12px; font-weight:700; font-size:22px; letter-spacing:-0.02em; margin-bottom:28px;}
+  .landing-h1{font-size:clamp(30px,4vw,46px); font-weight:700; letter-spacing:-0.03em; line-height:1.1; margin:0 0 16px;}
   .landing-sub{color:#A9B4C9; font-size:15.5px; line-height:1.6; max-width:440px; margin:0 0 22px;}
   .landing-sim-note{display:flex; gap:9px; align-items:flex-start; background:rgba(95,168,245,0.14); border:1px solid rgba(95,168,245,0.32); border-radius:12px; padding:12px 14px; font-size:12.5px; color:#BFD8FF; line-height:1.55; margin-bottom:26px; max-width:440px;}
   .landing-sim-note span{min-width:0;}
@@ -327,7 +371,7 @@
 
   .landing-visual{display:flex; flex-direction:column; gap:16px;}
   .lp-card{background:#fff; color:var(--text-primary); border-radius:16px; padding:18px 20px; box-shadow:0 30px 60px -16px rgba(0,0,0,0.5);}
-  .lp-title{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:14px;}
+  .lp-title{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin-bottom:14px;}
   .lp-card-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
   .lp-dots{display:flex; gap:6px; margin-bottom:14px;}
   .lp-dots span{width:10px; height:10px; border-radius:50%;}
@@ -338,7 +382,6 @@
   .lp-title-row{display:flex; align-items:center; gap:8px;}
   .lp-title-row svg{color:var(--text-muted); flex-shrink:0;}
   .lp-kebab{color:var(--text-muted); font-weight:900; letter-spacing:1px;}
-  .landing-footer-url{text-align:center; padding:20px 0 8px; color:rgba(255,255,255,0.55); font-size:13.5px;}
   .lp-arch-row{display:flex; align-items:center; gap:4px;}
   .lp-arch-node{flex:1; min-width:0; text-align:center;}
   @media (max-width:560px){
@@ -360,7 +403,7 @@
   .lp-gov-row:first-of-type{border-top:none;}
   .lp-gov-ok{color:var(--sage); font-weight:700; font-size:11px;}
   .lp-test{display:flex; align-items:center; gap:16px;}
-  .lp-test-num{font-size:28px; font-weight:900;}
+  .lp-test-num{font-size:28px; font-weight:700;}
   .lp-test-sub{font-size:11.5px; color:var(--text-secondary); font-weight:600;}
 
   /* ---------- landing preview refinements: API Flow / Governance / Test donut ---------- */
@@ -369,13 +412,13 @@
   .lp-flow-item .lp-flow-icon{margin-top:1px;}
   .lp-flow-body{flex:1; min-width:0;}
   .lp-flow-top{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
-  .lp-flow-title{font-weight:700; font-size:12.5px; color:var(--text-primary); white-space:nowrap;}
+  .lp-flow-title{font-weight:600; font-size:12.5px; color:var(--text-primary); white-space:nowrap;}
   .lp-flow-time{font-size:10px; color:var(--text-muted); white-space:nowrap; flex-shrink:0;}
   .lp-flow-sub{font-size:11px; color:var(--text-secondary); margin-top:1px;}
   .lp-flow-item .lp-flow-check{margin-left:0; flex-shrink:0; align-self:flex-start; margin-top:2px;}
 
   .lp-gov-table{display:flex; flex-direction:column;}
-  .lp-gov-head{display:grid; grid-template-columns:1.35fr 0.85fr 1fr; font-size:9.5px; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); padding-bottom:8px; border-bottom:1px solid var(--card-border);}
+  .lp-gov-head{display:grid; grid-template-columns:1.35fr 0.85fr 1fr; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding-bottom:8px; border-bottom:1px solid var(--card-border);}
   .lp-gov-item{display:grid; grid-template-columns:1.35fr 0.85fr 1fr; align-items:center; gap:6px; padding:9px 0; border-bottom:1px solid var(--card-border); font-size:11.5px;}
   .lp-gov-item:last-child{border-bottom:none;}
   .lp-gov-name{display:flex; align-items:center; gap:7px; font-weight:600; color:var(--text-primary);}
@@ -387,84 +430,86 @@
   .lp-test-donut{position:relative; width:64px; height:64px; flex-shrink:0;}
   .lp-test-donut svg{display:block; transform:rotate(-90deg);}
   .lp-test-donut-center{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;}
-  .lp-test-donut-center span{font-size:16px; font-weight:900; line-height:1; letter-spacing:-0.02em;}
+  .lp-test-donut-center span{font-size:16px; font-weight:700; line-height:1; letter-spacing:-0.02em;}
   .lp-test-donut-center small{font-size:8.5px; color:var(--text-secondary); font-weight:700; margin-top:1px;}
   .lp-test-info{flex:1; min-width:0;}
-  .lp-test-label{font-weight:800; font-size:13.5px; margin-bottom:8px;}
+  .lp-test-label{font-weight:600; font-size:13.5px; margin-bottom:8px;}
   .lp-test-line{display:flex; justify-content:space-between; align-items:center; font-size:11.5px; color:var(--text-secondary); padding:3px 0;}
   .lp-test-line b{color:var(--text-primary); font-weight:800;}
 
   /* ---------- security / governance / error lab ---------- */
   .chip-row{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;}
-  .sim-chip{padding:9px 16px; border-radius:10px; border:1.5px solid var(--card-border); background:#fff; font-size:13px; font-weight:600; cursor:pointer; transition:all .18s ease;}
+  .sim-chip{padding:9px 16px; border-radius:10px; border:1.5px solid var(--card-border); background:#fff; font-size:13px; font-weight:600; cursor:pointer; transition:background .18s ease, border-color .18s ease, color .18s ease, transform var(--dur-tap) var(--ease-tap);}
+  .sim-chip:active{transform:scale(0.96);}
   .sim-chip:hover{border-color:var(--accent); color:var(--accent-dim);}
   .sim-chip.selected{background:var(--text-primary); color:#fff; border-color:var(--text-primary);}
 
   /* ---------- Project & Setup (additive) ---------- */
-  .proj-lead{font-size:14px; color:var(--text-secondary); line-height:1.6; max-width:760px; margin:0 0 4px;}
-  .proj-eyebrow{font-size:11px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent-dim); margin:0 0 6px;}
+  .proj-lead{font-size:13px; color:var(--text-secondary); line-height:1.6; max-width:760px; margin:0 0 4px;}
+  .proj-eyebrow{font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent-dim); margin:0 0 6px;}
   .tech-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
   @media (max-width:820px){ .tech-grid{grid-template-columns:repeat(2,1fr);} }
   @media (max-width:480px){ .tech-grid{grid-template-columns:1fr;} }
   .tech-badge{border:1px solid var(--card-border); border-radius:14px; padding:14px 16px; background:#fff;}
-  .tech-badge .tech-name{font-weight:700; font-size:13px; margin-bottom:4px; color:var(--text-primary);}
-  .tech-badge .tech-desc{font-size:12px; color:var(--text-secondary); line-height:1.45;}
+  .tech-badge .tech-name{font-weight:600; font-size:14px; letter-spacing:-0.005em; margin-bottom:4px; color:var(--text-primary);}
+  .tech-badge .tech-desc{font-size:13px; color:var(--text-secondary); line-height:1.45;}
 
   .layer-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
   @media (max-width:820px){ .layer-grid{grid-template-columns:1fr;} }
   .layer-card{border:1px solid var(--card-border); border-radius:16px; padding:18px 20px; background:#fff;}
-  .layer-card .layer-eyebrow{font-size:10.5px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent-dim);}
-  .layer-card .layer-title{font-weight:800; font-size:16px; margin:4px 0 2px; color:var(--text-primary);}
+  .layer-card .layer-eyebrow{font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent-dim);}
+  .layer-card .layer-title{font-weight:600; font-size:16px; letter-spacing:-0.01em; margin:4px 0 2px; color:var(--text-primary);}
   .layer-card .layer-port{font-size:11.5px; color:var(--text-muted); margin-bottom:10px;}
-  .layer-card .layer-desc{font-size:12.5px; color:var(--text-secondary); line-height:1.5;}
+  .layer-card .layer-desc{font-size:13px; color:var(--text-secondary); line-height:1.5;}
 
   .feat-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:10px 18px;}
   @media (max-width:640px){ .feat-grid{grid-template-columns:1fr;} }
-  .feat-item{display:flex; align-items:flex-start; gap:8px; font-size:12.5px; color:var(--text-secondary);}
+  .feat-item{display:flex; align-items:flex-start; gap:8px; font-size:13px; color:var(--text-secondary);}
   .feat-item .feat-check{color:var(--sage); font-weight:800; flex-shrink:0;}
 
   .domain-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:14px;}
   @media (max-width:760px){ .domain-grid{grid-template-columns:1fr;} }
   .domain-card{border:1px solid var(--card-border); border-radius:14px; padding:16px 18px; background:#fff;}
-  .domain-card .domain-title{font-weight:800; font-size:13.5px; margin:0 0 8px;}
+  .domain-card .domain-title{font-weight:600; font-size:16px; letter-spacing:-0.01em; margin:0 0 8px;}
   .domain-card ul{margin:0; padding-left:18px;}
-  .domain-card li{font-size:12px; color:var(--text-secondary); margin-bottom:4px; line-height:1.5;}
+  .domain-card li{font-size:13px; color:var(--text-secondary); margin-bottom:4px; line-height:1.5;}
 
   .compare-grid{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
   @media (max-width:760px){ .compare-grid{grid-template-columns:1fr;} }
   .compare-card{border-radius:16px; padding:20px 22px;}
   .compare-card.is-sim{border:1.5px solid var(--card-border); background:#fff;}
   .compare-card.is-real{border:1.5px solid var(--text-primary); background:var(--bg-subtle);}
-  .compare-card .compare-eyebrow{font-size:10.5px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted);}
-  .compare-card .compare-title{font-weight:800; font-size:15.5px; margin:4px 0 12px;}
+  .compare-card .compare-eyebrow{font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted);}
+  .compare-card .compare-title{font-weight:600; font-size:16px; letter-spacing:-0.01em; margin:4px 0 12px;}
   .compare-card ul{margin:0; padding-left:18px;}
-  .compare-card li{font-size:12.5px; color:var(--text-secondary); margin-bottom:6px; line-height:1.5;}
+  .compare-card li{font-size:13px; color:var(--text-secondary); margin-bottom:6px; line-height:1.5;}
 
   .step-list{display:flex; flex-direction:column; gap:0;}
   .step-item{display:flex; gap:14px; padding:14px 0; border-bottom:1px solid var(--card-border);}
   .step-item:last-child{border-bottom:none;}
   .step-num{width:30px; height:30px; border-radius:999px; background:var(--text-primary); color:#fff; font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
-  .step-body .step-title{font-weight:700; font-size:13.5px; margin-bottom:3px; color:var(--text-primary);}
-  .step-body .step-desc{font-size:12.5px; color:var(--text-secondary); line-height:1.5;}
+  .step-body .step-title{font-weight:600; font-size:16px; letter-spacing:-0.01em; margin-bottom:3px; color:var(--text-primary);}
+  .step-body .step-desc{font-size:13px; color:var(--text-secondary); line-height:1.5;}
 
   .gh-card{border:1.5px solid var(--text-primary); border-radius:18px; padding:26px 28px; background:var(--bg-subtle); display:flex; flex-direction:column; gap:14px;}
   @media (max-width:640px){ .gh-card{padding:20px 18px;} }
-  .gh-btn{display:inline-flex; align-items:center; gap:8px; align-self:flex-start; font-size:13.5px; font-weight:700; padding:13px 22px; border-radius:999px; background:var(--text-primary); color:#fff; text-decoration:none; box-shadow:0 8px 20px -8px rgba(0,0,0,0.35); transition:background .18s ease;}
+  .gh-btn{display:inline-flex; align-items:center; gap:8px; align-self:flex-start; font-size:13.5px; font-weight:700; padding:13px 22px; border-radius:999px; background:var(--text-primary); color:#fff; text-decoration:none; box-shadow:0 8px 20px -8px rgba(0,0,0,0.35); transition:background .18s ease, transform var(--dur-tap) var(--ease-tap);}
+  .gh-btn:active{transform:scale(0.97);}
   .gh-btn:hover{background:#000;}
-  .gh-repo{font-size:12px; color:var(--text-secondary);}
+  .gh-repo{font-size:13px; color:var(--text-secondary);}
 
   .proj-flow{display:flex; flex-direction:column; max-width:420px;}
 
   .faq-list{display:flex; flex-direction:column; gap:0;}
   .faq-item{border-bottom:1px solid var(--card-border); padding:14px 0;}
   .faq-item:last-child{border-bottom:none;}
-  .faq-item summary{cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:14px; font-weight:700; font-size:13.5px; color:var(--text-primary);}
+  .faq-item summary{cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:14px; font-weight:600; font-size:16px; letter-spacing:-0.01em; color:var(--text-primary);}
   .faq-q{flex:1; min-width:0; line-height:1.45;}
   .faq-item summary::-webkit-details-marker{display:none;}
   .faq-item summary::after{content:'+'; font-size:18px; font-weight:400; color:var(--text-muted); flex-shrink:0; line-height:1;}
   .faq-item[open] summary::after{content:'−';}
   .faq-item summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px;}
-  .faq-answer{font-size:12.5px; color:var(--text-secondary); line-height:1.65; margin:10px 0 0; max-width:680px;}
+  .faq-answer{font-size:13px; color:var(--text-secondary); line-height:1.65; margin:10px 0 0; max-width:680px;}
   .json-box{background:#0A0E1A; color:#D7E3FF; border-radius:12px; padding:16px 18px; font-family:'SF Mono', ui-monospace, Menlo, monospace; font-size:12.5px; line-height:1.8; white-space:pre-wrap; margin-top:14px;}
   .json-box .k{color:#8FB8FF;}
   .json-box .status-ok{color:#4ADE80; font-weight:700;}
@@ -474,11 +519,873 @@
   .req-pill.ok{background:var(--sage-wash); color:#158A54;}
   .req-pill.fail{background:var(--rust-wash); color:var(--rust);}
   .req-row{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;}
+
+  /* ============================================================
+     MOBILE HARDENING PATCH — additive only.
+     Everything below is scoped inside max-width media queries,
+     so nothing here changes how the page looks or behaves on a
+     normal desktop browser. It only fixes real mobile-specific
+     issues found in the existing rules above.
+     ============================================================ */
+  @media (max-width:780px){
+    /* iOS Safari auto-zooms the whole page when a tapped input's
+       font-size is under 16px. That's very likely the single
+       biggest reason the form "feels broken" on a phone versus
+       desktop. Bumping to 16px only on small screens fixes it
+       without touching the desktop 14px size above. */
+    .field input, .field select{ font-size:16px; }
+
+    /* Comfortable touch targets (44px is Apple/Google's own
+       minimum recommendation) without changing desktop sizing. */
+    .btn{ min-height:44px; }
+    .nav-item{ min-height:40px; }
+    .side-panel-close{ width:36px; height:36px; }
+
+    /* Governance/legend grids were tuned for desktop card widths;
+       on a phone the narrow 0.8fr/1fr columns crush the detail
+       text. Stack them instead of squeezing three columns. */
+    .gov-row{ grid-template-columns:1fr; row-gap:4px; }
+    .gov-detail{ text-align:left; }
+    .lp-gov-head{ display:none; }
+    .lp-gov-item{ grid-template-columns:1fr; row-gap:2px; }
+
+    /* Keep the topbar from ever wrapping to a second line on a
+       narrow phone, where wordmark + reset + mode badge together
+       are wider than the viewport. */
+    .topbar-inner{ gap:6px; }
+    .reset-btn{ padding:6px 8px; font-size:10px; }
+  }
+
+  @media (max-width:400px){
+    /* Smallest phones (e.g. iPhone SE width): the mode badge is
+       the least essential item in the topbar, so it's the first
+       to go rather than letting the row wrap or overlap. */
+    .mode-badge{ display:none; }
+    .wordmark{ font-size:12.5px; }
+  }
+
+  /* ------------------------------------------------------------
+     Landing hero overflow guard — scoped to the stacked layout.
+     These force normal word-wrapping and cap each hero element to
+     the width it's given, so nothing can run past a narrow screen.
+     It must stay inside a media query: unscoped, the max-width:100%
+     here lands after (and therefore overrides) .landing-inner's
+     max-width:1180px and .landing-sub's max-width:440px, which
+     stretched the desktop hero to full viewport width instead of
+     letting it sit capped and centred.
+     ------------------------------------------------------------ */
+  @media (max-width:980px){
+    .landing-inner, .landing-visual, .landing-h1, .landing-sub, .lp-card{
+      max-width:100%;
+      box-sizing:border-box;
+    }
+    .landing-h1, .landing-sub{
+      overflow-wrap:break-word;
+      word-break:break-word;
+      white-space:normal;
+    }
+  }
+
+  /* ------------------------------------------------------------
+     Native-feeling mobile navigation.
+     The old horizontal tab strip is a web pattern, not an app
+     one — hidden on mobile in favor of the dedicated 5-item
+     bottom tab bar + More sheet defined below, which is closer
+     to what a real banking app's navigation looks like. Desktop
+     keeps the full sidebar exactly as it was.
+     ------------------------------------------------------------ */
+  @media (max-width:780px){
+    .side-nav{ display:none; }
+    .main-col{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
+    .rail{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
+  }
+
+  /* ------------------------------------------------------------
+     Mobile tab bar (5 items) — hidden entirely on desktop.
+     ------------------------------------------------------------ */
+  .mobile-tabbar{ display:none; }
+  @media (max-width:780px){
+    .mobile-tabbar{
+      display:flex; align-items:stretch; justify-content:space-around;
+      position:fixed; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom));
+      z-index:60; padding:6px 4px;
+      background:rgba(255,255,255,0.86); backdrop-filter:blur(20px) saturate(180%);
+      border:1px solid var(--card-border);
+      border-radius:22px;
+      box-shadow:0 18px 40px -14px rgba(20,20,35,0.28), 0 2px 10px rgba(20,20,35,0.06);
+    }
+    /* Subtle hairline above the bar itself — separate from the card
+       border so it reads even where the blur sits over busy content. */
+    .mobile-tabbar::before{
+      content:''; position:absolute; top:0; left:16px; right:16px; height:1px;
+      background:rgba(20,20,35,0.07); pointer-events:none;
+    }
+    .mnav-item{
+      position:relative;
+      flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:3px; padding:8px 2px 7px; border:none; background:transparent; cursor:pointer;
+      color:var(--text-muted); border-radius:16px; min-height:52px;
+      -webkit-tap-highlight-color:transparent;
+      transition:color 150ms cubic-bezier(.4,0,.2,1), transform 150ms cubic-bezier(.4,0,.2,1);
+    }
+    .mnav-item:active{ transform:scale(0.92); }
+    .mnav-item.is-active:active{ transform:translateY(-2px) scale(0.92); }
+    .mnav-item svg{ width:21px; height:21px; transition:transform 150ms cubic-bezier(.4,0,.2,1); }
+    .mnav-item span{
+      font-size:9.5px; font-weight:500; letter-spacing:0.01em;
+      transition:font-weight 150ms ease, color 150ms ease;
+    }
+    .mnav-item.is-active{ color:var(--accent); transform:translateY(-2px); }
+    .mnav-item.is-active svg{ transform:translateY(-1px); }
+    .mnav-item.is-active span{ font-weight:600; }
+  }
+
+  /* ------------------------------------------------------------
+     More sheet — slides up from the bottom, sits above the tab
+     bar. Hidden on desktop; the "More" concept only exists to
+     solve mobile's limited tab count.
+     ------------------------------------------------------------ */
+  .more-backdrop{ display:none; }
+  .more-sheet{ display:none; }
+  @media (max-width:780px){
+    .more-backdrop{
+      display:block; position:fixed; inset:0; background:rgba(15,20,35,0.32);
+      opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:70;
+    }
+    .more-backdrop.is-open{ opacity:1; pointer-events:auto; }
+    .more-sheet{
+      display:flex; flex-direction:column;
+      position:fixed; left:0; right:0; bottom:0; z-index:71;
+      max-height:78vh;
+      background:var(--card); border-radius:24px 24px 0 0;
+      box-shadow:0 -20px 50px -10px rgba(20,20,35,0.35);
+      transform:translateY(100%); transition:transform var(--dur-sheet) var(--spring);
+      padding-bottom:env(safe-area-inset-bottom);
+    }
+    .more-sheet.is-open{ transform:translateY(0); }
+    /* Same spring curve governs the close — it settles with the same
+       slight overshoot-then-catch it opened with, rather than stopping
+       dead, so open and close read as one continuous motion. */
+    .more-sheet-handle{ width:32px; height:4px; border-radius:99px; background:var(--card-border); margin:8px auto 6px; }
+    .more-sheet-head{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:6px 18px 10px; font-weight:600; font-size:15px; border-bottom:1px solid var(--card-border);
+    }
+    .more-sheet-close{
+      width:28px; height:28px; border-radius:50%; border:none;
+      background:var(--bg-subtle); color:var(--text-secondary); display:flex; align-items:center; justify-content:center;
+      transition:background .15s ease, transform .12s ease;
+    }
+    .more-sheet-close:active{ background:var(--card-border); transform:scale(0.94); }
+    .more-sheet-body{ overflow-y:auto; padding:2px 10px 18px; }
+    .more-group{ padding:2px 0; }
+    .more-group + .more-group{ margin-top:14px; }
+    .more-group-label{
+      font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase;
+      color:var(--text-muted); padding:4px 10px 6px;
+    }
+    .more-row{
+      width:100%; display:flex; align-items:center; gap:12px; text-align:left;
+      padding:8px 10px; border:none; background:transparent; border-radius:14px;
+      min-height:52px; -webkit-tap-highlight-color:transparent;
+      transition:background .12s ease, transform .12s ease;
+    }
+    .more-row:active{ background:var(--bg-subtle); transform:scale(0.985); }
+    .more-row-icon{
+      width:36px; height:36px; border-radius:10px; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center;
+      background:var(--bg-subtle); color:var(--text-secondary);
+    }
+    .more-row-text{ flex:1; min-width:0; display:flex; flex-direction:column; }
+    .more-row-title{ font-size:16px; font-weight:600; letter-spacing:-0.01em; color:var(--text-primary); line-height:1.25; }
+    .more-row-sub{ font-size:13px; color:var(--text-secondary); margin-top:1px; line-height:1.35; }
+    .more-row-chev{ color:var(--text-muted); flex-shrink:0; opacity:0.7; }
+    /* These chevron <svg> tags have no width/height attributes, only a
+       viewBox — without an explicit size, browsers fall back to the SVG
+       default intrinsic size (~300x150px), which is exactly the "giant
+       arrow + huge empty row" bug. Pin the box size here. */
+    .more-row-icon svg{ width:17px; height:17px; }
+    .more-row-chev svg{ width:14px; height:14px; }
+  }
+
+
+  /* ------------------------------------------------------------
+     Stripe-dashboard-grade spacing & card system for phones.
+     Everything below is scoped to <=780px; desktop is untouched.
+
+     Overriding the shared --card-border / --shadow-card variables
+     is deliberate: nearly every card, row, and divider in this
+     file already reads from them, so this one override softens
+     borders and lightens shadows consistently across the whole
+     mobile UI instead of hand-editing dozens of individual rules.
+
+     Spacing scale used throughout: 4 · 8 · 12 · 16 · 20 · 24 · 32.
+     ------------------------------------------------------------ */
+  @media (max-width:780px){
+    :root{
+      --card-border: rgba(15,23,42,0.06);
+      --shadow-card: 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-hover: 0 1px 2px rgba(0,0,0,0.04);
+    }
+
+    /* Typography hierarchy: a page title that reads as a clear
+       "you are here" anchor without dominating a small screen. */
+    .view-head{ margin-bottom:20px; }
+    .view-head h1{ font-size:22px; letter-spacing:-0.015em; }
+    .view-head p{ font-size:13px; max-width:none; }
+    .card-title{ font-size:18px; }
+    .card-eyebrow{ font-size:10.5px; }
+
+    /* Cards: 16/20/24 padding on the 8pt grid, soft border, quiet
+       shadow instead of the desktop card's mouse-hover depth. */
+    .card{ padding:20px 16px 24px; border-radius:18px; margin-bottom:16px; }
+    .card:hover{ box-shadow:var(--shadow-card); }
+
+    /* KPI cards: calm and compact, spaced on the 8pt grid, with
+       the same soft border/shadow treatment as every other card. */
+    .stat-row{ gap:12px; margin-bottom:20px; }
+    .stat-card{
+      padding:16px; border-radius:14px;
+      box-shadow:var(--shadow-card);
+      transition:transform .12s ease, box-shadow .12s ease;
+    }
+    .stat-card:active{ transform:scale(0.97); }
+    .stat-num{ font-size:22px; letter-spacing:-0.015em; }
+    .stat-label{ font-size:11px; }
+
+    /* Dashboard KPI strip stays one unified surface on mobile too —
+       a balanced 2x2 grid with internal dividers on both axes,
+       rather than four small shadowed boxes. Number/label sizes
+       stay the same as desktop so the strip reads consistently
+       regardless of viewport. */
+    .kpi-strip{ grid-template-columns:repeat(2,1fr); margin-bottom:20px; }
+    .kpi-strip .stat-card{ padding:14px 16px; box-shadow:none; }
+    .kpi-strip .stat-card:active{ transform:none; }
+    .kpi-strip .stat-card:nth-child(2n){ border-right:none; }
+    .kpi-strip .stat-card:not(:nth-last-child(-n+2)){ border-bottom:1px solid var(--card-border); }
+
+    /* List rows — overview customers, "created this session" rows,
+       account rows, More-sheet rows: a real 64–68px tap target,
+       16px horizontal padding, and a consistent 12px gap between
+       any leading icon and the text next to it. */
+    .overview-row{ min-height:64px; padding:12px 16px; gap:12px; border-radius:14px; }
+    .cust-row{ min-height:64px; padding:12px 16px; gap:12px; border-radius:14px; }
+    .more-row{ min-height:52px; padding:10px 12px; gap:12px; }
+
+    /* Buttons already get OS-style press feedback from the base
+       .btn:active rule above — nothing extra needed here, which is
+       what makes the whole thing feel "native" rather than "a
+       website with big fingers," on every breakpoint alike. */
+
+    /* Database/expandable rows and legend rows get the same
+       comfortable tap target as everything else; press feedback
+       itself now lives on the base rule so it's consistent with
+       desktop instead of being restated here. */
+    .db-table-head, .legend-row{ min-height:46px; }
+  }
+
+  /* ------------------------------------------------------------
+     Landing page architecture row: on a phone, a horizontally
+     scrolling strip of icons reads as "a desktop diagram that
+     got shrunk," not a mobile-native list. Stack it vertically
+     instead — same nodes, same data, just laid out the way a
+     mobile app actually presents a sequence.
+     ------------------------------------------------------------ */
+  @media (max-width:560px){
+    .lp-arch-row{ flex-direction:column; align-items:stretch; overflow-x:visible; gap:10px; }
+    .lp-arch-node{ flex:none; width:100%; display:flex; align-items:center; gap:12px; text-align:left; min-width:0; }
+    .lp-arch-icon{ margin:0; flex-shrink:0; }
+    .lp-arch-label{ white-space:normal; }
+    .lp-arch-arrow{ display:none; }
+  }
+
+  /* ============================================================
+     v2 POLISH PASS — additive only. No existing rule is replaced;
+     everything below either stacks the header subtitle, centres the
+     mobile landing hero, hides the More-sheet scrollbar, or adds
+     safe-area-aware bottom clearance. Desktop behaviour is otherwise
+     untouched.
+     ============================================================ */
+
+  /* ---- Header: subtitle sits directly below the title, left-aligned ---- */
+  .wordmark-text{ display:flex; flex-direction:column; min-width:0; line-height:1.2; }
+  .wordmark-title{ font-weight:700; letter-spacing:-0.02em; }
+  .wordmark small{ display:block; margin-left:0; margin-top:1px; font-size:12px; }
+  header.topbar .topbar-inner{ height:auto; min-height:56px; padding-top:8px; padding-bottom:8px; }
+  @media (max-width:640px){ .wordmark-title{ font-size:15px; } }
+  @media (max-width:480px){
+    /* the base rule hides the subtitle under 480px — keep it visible,
+       just smaller, since it now has its own line rather than competing
+       for horizontal room with the title. */
+    .wordmark small{ display:block; font-size:10.5px; }
+    .wordmark-title{ font-size:13.5px; }
+    header.topbar .topbar-inner{ min-height:52px; }
+  }
+
+  /* ---- Mobile landing (<=768px) — layout & alignment only ----
+     The desktop hero is the source of truth. No font size, weight,
+     colour, or inter-section margin is redefined here, so the vertical
+     rhythm stays at desktop proportions rather than being stretched.
+     This only stacks the existing hero into one centred group. */
+  @media (max-width:768px){
+    .landing-inner > div:first-child{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      text-align:center;
+    }
+    /* logo + wordmark remain a single lockup, centred */
+    .landing-word{
+      justify-content:center;
+      /* the text node inherits the default line-height, so its line box
+         is taller than the glyphs and flex centres the box rather than
+         the letterforms — which reads as the wordmark sitting a touch
+         low next to the 38px badge. line-height:1 collapses the box to
+         the glyphs so centring is optical, not just geometric. */
+      line-height:1;
+      /* "BankGate" is a bare text node preceded by a newline in the
+         markup, so it becomes an anonymous flex item carrying a leading
+         space (~6px at this size) that stacks on top of the gap — the
+         lockup reads as ~18px apart, not 12px. Trimming the gap here
+         brings the rendered spacing back to roughly 12px. Doing it in
+         CSS rather than editing the markup keeps desktop untouched. */
+      gap:5px;
+    }
+    /* keep their desktop max-width:440px and existing bottom margins;
+       align-items:center centres them, width:100% stops flex from
+       shrinking them to content width */
+    .landing-sub,
+    .landing-sim-note{ width:100%; }
+    /* the sim note stays left-aligned internally so the body copy
+       doesn't turn into ragged centred prose — only the block centres. */
+    .landing-sim-note{ text-align:left; }
+    .landing-visual{ text-align:left; }
+  }
+
+  /* ---- More sheet: hide the scrollbar, keep momentum scrolling ---- */
+  .more-sheet-body{ scrollbar-width:none; -ms-overflow-style:none; -webkit-overflow-scrolling:touch; }
+  .more-sheet-body::-webkit-scrollbar{ width:0; height:0; display:none; }
+
+  /* ---- Bottom nav can never sit on top of content ---- */
+  @media (max-width:780px){
+    .main-col{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
+    .rail{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
+    .more-sheet-body{ padding-bottom:calc(28px + env(safe-area-inset-bottom)); }
+  }
+
+  /* ============================================================
+     Batch 1 polish — button busy state, invalid-field highlight.
+     The busy state and field highlight apply at every breakpoint
+     (they're feedback, not layout); the landing trim below is
+     mobile-scoped so desktop is untouched.
+     ============================================================ */
+
+  /* ---- Primary action busy state ----
+     The trace runs for ~2s after a tap. Without this there's a dead
+     beat where nothing confirms the press landed. The spinner is a
+     pseudo-element so no markup changes and no layout shift. */
+  .btn.is-busy{
+    position:relative;
+    color:transparent !important;
+    pointer-events:none;
+    opacity:0.85;
+  }
+  .btn.is-busy::after{
+    content:'';
+    position:absolute; top:50%; left:50%;
+    width:16px; height:16px; margin:-8px 0 0 -8px;
+    border:2px solid rgba(255,255,255,0.35);
+    border-top-color:#fff;
+    border-radius:50%;
+    animation:btnSpin .6s linear infinite;
+  }
+  @keyframes btnSpin{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce){
+    .btn.is-busy::after{ animation-duration:1.8s; }
+  }
+
+  /* ---- Invalid field highlight ----
+     Errors previously rendered only as text under the field, which
+     on a phone is often scrolled off-screen. The border makes the
+     offending input findable once we scroll to it. */
+  .field input.is-invalid,
+  .field select.is-invalid{
+    border-color:var(--rust);
+    box-shadow:0 0 0 3px var(--rust-wash);
+  }
+  .field input.is-invalid:focus,
+  .field select.is-invalid:focus{
+    border-color:var(--rust);
+  }
+
+  /* ---- Landing: trim the preview stack on mobile ----
+     On desktop these three cards are the right-hand column and carry
+     the proof. Stacked on a phone they become a long scroll below a
+     CTA most people have already tapped. Keep the Architecture card
+     (it explains what the project is); the other three are all
+     reachable inside the app anyway. */
+  @media (max-width:768px){
+    .lp-below{ display:none; }
+  }
+
+
+  /* ============================================================
+     Batch 2 — trace log height, landing hero title & entrance.
+     ============================================================ */
+
+  /* ---- Trace log: no nested scroll on mobile ----
+     Desktop keeps max-height:280px because the rail is its own
+     scroll container and the log sits inside it. On mobile the whole
+     page scrolls, so an inner scroll area inside it means two
+     competing scrollers under one finger — you swipe expecting the
+     page and move the log instead. Letting it size to content
+     removes the conflict entirely. */
+  @media (max-width:768px){
+    .flow-log{ max-height:none; overflow-y:visible; }
+  }
+
+  /* ---- Landing hero: title weight and entrance ---- */
+  @media (max-width:768px){
+    /* desktop steps 46px title down to a 15.5px paragraph; mobile
+       compressed that to 30px vs 15.5px, which flattened the
+       hierarchy. This restores a closer ratio without touching the
+       two-line lockup or the line-height. */
+    .landing-h1{ font-size:clamp(32px,8.5vw,40px); }
+  }
+
+  /* Entrance: the hero elements fade up in sequence on load, CTA last.
+     Uses the existing --ease token so it moves like everything else.
+     Applied at all widths — it's the same hero, and desktop currently
+     renders with no entrance at all. Fully disabled under
+     prefers-reduced-motion, where everything simply starts visible. */
+  @keyframes heroIn{
+    from{ opacity:0; transform:translateY(10px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  #landing .landing-word,
+  #landing .landing-h1,
+  #landing .landing-sub,
+  #landing .landing-sim-note,
+  #landing .landing-btn{
+    animation:heroIn .5s var(--ease) both;
+  }
+  #landing .landing-word{ animation-delay:0ms; }
+  #landing .landing-h1{ animation-delay:70ms; }
+  #landing .landing-sub{ animation-delay:140ms; }
+  #landing .landing-sim-note{ animation-delay:210ms; }
+  #landing .landing-btn{ animation-delay:280ms; }
+
+  @media (prefers-reduced-motion: reduce){
+    #landing .landing-word,
+    #landing .landing-h1,
+    #landing .landing-sub,
+    #landing .landing-sim-note,
+    #landing .landing-btn{
+      animation:none;
+    }
+  }
+
+  /* ============================================================
+     Landing page mobile UX pass.
+     Four fixes, all scoped to <=768px so desktop is untouched:
+     de-duplicated repo URL, removed non-functional chrome, tightened
+     the tail spacing, and gave the footer URL a real tap target.
+     ============================================================ */
+  @media (max-width:768px){
+
+    /* ---- 1. Window chrome is desktop metaphor, not mobile ----
+       The traffic-light dots imply "this is a desktop app window",
+       which is meaningless on a phone and eats vertical space above
+       the only content that matters in the card. */
+    .landing-visual .lp-dots{ display:none; }
+
+    /* ---- 2. Remove the decorative Export affordance ----
+       It looks tappable and does nothing. On desktop it reads as part
+       of a product screenshot; on mobile, where everything else IS
+       tappable, a dead button is a broken promise. */
+    .landing-visual .lp-export{ display:none; }
+    .landing-visual .lp-card-head{ margin-bottom:10px; }
+
+    /* ---- 3. Tighten the tail ----
+       With the preview stack hidden, the single remaining card sat in
+       a large dead gap above the footer. */
+    .landing-inner{ padding-bottom:20px; }
+
+    /* ---- 4. The footer URL is now the single repo reference ----
+       Give it the presence and tap target that role deserves rather
+       than leaving it as incidental grey text. */
+
+  }
+
+
+  /* ============================================================
+     Landing architecture card — mobile hierarchy.
+     Six nodes across a phone forced 11px labels into ~55px columns
+     with near-invisible arrows between them. Stacked vertically it
+     matches the in-app rail, so the preview and the real thing read
+     the same way.
+
+     Note on the arrows: they're text glyphs (a literal arrow
+     character in a span), not SVG. Rotating them 90deg threw the
+     glyph outside its own box and left arrows floating loose on the
+     page. So on mobile they're hidden and the flow is shown with a
+     vertical connector line down the icon column instead — the same
+     idea, drawn rather than typed.
+     ============================================================ */
+  @media (max-width:768px){
+    .landing-visual .lp-arch-row{
+      flex-direction:column;
+      align-items:stretch;
+      gap:0;
+      overflow-x:visible;   /* cancels the 560px horizontal-scroll rule */
+    }
+
+    /* each tier becomes a row: icon, then label, left-aligned */
+    .landing-visual .lp-arch-node{
+      position:relative;
+      flex:none;
+      width:100%;
+      min-width:0;
+      display:flex;
+      align-items:center;
+      gap:13px;
+      text-align:left;
+      padding:6px 0;
+    }
+
+    /* connector: a short line from this icon down to the next one */
+    .landing-visual .lp-arch-node::before{
+      content:'';
+      position:absolute;
+      left:15px;                 /* centre of the 32px icon */
+      top:calc(50% + 17px);      /* just below the icon */
+      height:calc(100% - 34px);  /* stops just above the next icon */
+      width:1.5px;
+      background:#DCE0EA;
+    }
+    .landing-visual .lp-arch-node:last-child::before{ display:none; }
+
+    .landing-visual .lp-arch-icon{
+      margin:0;
+      flex-shrink:0;
+      width:32px;
+      height:32px;
+      border-radius:9px;
+      position:relative;   /* sits above the connector line */
+      z-index:1;
+    }
+    .landing-visual .lp-arch-icon svg{ width:16px; height:16px; }
+    .landing-visual .lp-arch-label{
+      white-space:normal;
+      font-size:13.5px;
+      font-weight:600;
+      letter-spacing:-0.005em;
+    }
+
+    /* the glyph arrows can't be rotated safely — the line above
+       replaces them */
+    .landing-visual .lp-arch-arrow{ display:none; }
+
+    /* section label reads as a heading for the list beneath it.
+       It lives inside .lp-card-head, a flex row with
+       justify-content:space-between — so text-align on the label
+       itself does nothing (the flex item shrinks to its content).
+       The alignment has to be set on the flex parent, which is why
+       the heading stayed left while the list centred. */
+    .landing-visual .lp-card-head{ justify-content:center; margin-bottom:14px; }
+    .landing-visual .lp-title{
+      font-size:10.5px;
+      letter-spacing:0.09em;
+      text-align:center;
+    }
+
+    /* Centre the tier list as one block rather than centring each row
+       individually. Per-row centring would push every icon to a
+       different x-position (labels differ in length), so the icon
+       column would zigzag and the connector line couldn't run
+       straight through it. Shrinking the list to its content width
+       and centring that keeps the column aligned and the line true,
+       while reading as centred inside the card. */
+    .landing-visual .lp-arch-row{
+      width:fit-content;
+      max-width:100%;
+      margin-left:auto;
+      margin-right:auto;
+    }
+  }
+
+  /* ============================================================
+     Landing hero hierarchy (mobile).
+     Reading order should step down cleanly: brand -> title ->
+     description -> disclosure -> action -> proof -> preview.
+     Previously the proof line hugged the CTA (reading as its
+     caption) and the preview card sat in a vague gap below.
+     ============================================================ */
+  @media (max-width:768px){
+    /* brand sits apart from the title rather than crowding it */
+    .landing-word{ margin-bottom:26px; }
+
+    /* the disclosure is supporting information, not a peer of the
+       description — pull it slightly closer to what it qualifies */
+    .landing-sim-note{ margin-top:-2px; margin-bottom:26px; }
+
+    /* the CTA is the single primary action: give it room on both
+       sides so nothing competes with it */
+    .landing-btn{ margin-top:2px; }
+
+
+    /* clear separation between the hero and the preview card, so the
+       card reads as a new section rather than more hero.
+       .landing-inner is a grid with gap:40px, which was stacking on
+       top of this margin and producing a ~75px void — so the gap is
+       zeroed here and the spacing set once, in one place. */
+    .landing-inner{ gap:0; }
+    .landing-visual{ margin-top:28px; }
+  }
+
+  /* ---- Landing architecture card: proportions ----
+     Six rows in a card sized for a wide desktop column left the
+     content floating. Tighter padding and a measured label size make
+     the card sit closer to its content, which is what makes it read
+     as composed rather than sparse. */
+  @media (max-width:768px){
+    .landing-visual .lp-card{ padding:20px 18px 18px; }
+    .landing-visual .lp-arch-label{ font-size:14px; }
+  }
+
+  /* ============================================================
+     LANDING — MOBILE DESIGN PASS
+     Three principles applied:
+
+     1. One rhythm. Spacing between hero elements was set ad hoc
+        across several edits (26 / -2 / 2 / 20 / 28). It's now a
+        single 8pt scale, so the eye travels at an even pace.
+
+     2. Negative space is structure, not leftover. The card breathes
+        from the inside out rather than being padded arbitrarily.
+
+     3. Show, don't list. The architecture card was a static list on
+        a page selling an interactive product. The connector now
+        draws downward tier by tier as the card comes into view — a
+        four-second demonstration of what the app does, using the
+        page's own vocabulary. Everything is scoped to <=768px.
+     ============================================================ */
+  @media (max-width:768px){
+
+    /* ---- 1. Hero rhythm — one 8pt scale ---- */
+    .landing-word{ margin-bottom:24px; }
+    .landing-h1{ margin-bottom:16px; }
+    .landing-sub{ margin-bottom:24px; }
+    .landing-sim-note{ margin-top:0; margin-bottom:32px; }
+    .landing-btn{ margin-top:0; }
+    .landing-visual{ margin-top:32px; }
+
+    /* ---- 2. Card proportions ---- */
+    .landing-visual .lp-card{ padding:22px 20px; border-radius:18px; }
+    .landing-visual .lp-card-head{ margin-bottom:18px; }
+    .landing-visual .lp-arch-node{ padding:7px 0; }
+
+    /* ---- 3. The flow draws itself ----
+       The connector starts at zero height and grows; each icon lifts
+       from resting grey to the accent as the line reaches it. Nodes
+       are children 1,3,5,7,9,11 (arrow spans sit between them), so
+       the stagger is written against those positions. */
+    .landing-visual .lp-arch-icon{
+      background:#F0F2F7;
+      color:#9AA3B5;
+      transition:background .45s var(--ease), color .45s var(--ease);
+    }
+    .landing-visual .lp-arch-label{
+      color:#5B6786;
+      transition:color .45s var(--ease);
+    }
+    .landing-visual .lp-arch-node::before{ height:0; }
+
+    /* once the card is in view, JS adds .is-flowing and the sequence runs */
+    .landing-visual .lp-card.is-flowing .lp-arch-node::before{
+      animation:archLine .42s var(--ease) forwards;
+    }
+    .landing-visual .lp-card.is-flowing .lp-arch-icon{
+      animation:archIcon .42s var(--ease) forwards;
+    }
+    .landing-visual .lp-card.is-flowing .lp-arch-label{
+      animation:archLabel .42s var(--ease) forwards;
+    }
+
+    @keyframes archLine{ to{ height:calc(100% - 34px); } }
+    @keyframes archIcon{
+      to{ background:var(--accent-wash); color:var(--accent-dim); }
+    }
+    @keyframes archLabel{ to{ color:var(--text-primary); } }
+
+    /* stagger: each tier ~0.42s after the one above it */
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(1) .lp-arch-icon,
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(1) .lp-arch-label{ animation-delay:0ms; }
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(1)::before{ animation-delay:180ms; }
+
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(3) .lp-arch-icon,
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(3) .lp-arch-label{ animation-delay:420ms; }
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(3)::before{ animation-delay:600ms; }
+
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(5) .lp-arch-icon,
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(5) .lp-arch-label{ animation-delay:840ms; }
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(5)::before{ animation-delay:1020ms; }
+
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(7) .lp-arch-icon,
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(7) .lp-arch-label{ animation-delay:1260ms; }
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(7)::before{ animation-delay:1440ms; }
+
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(9) .lp-arch-icon,
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(9) .lp-arch-label{ animation-delay:1680ms; }
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(9)::before{ animation-delay:1860ms; }
+
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(11) .lp-arch-icon,
+    .landing-visual .lp-card.is-flowing .lp-arch-node:nth-child(11) .lp-arch-label{ animation-delay:2100ms; }
+
+    /* Reduced motion: the same end state, arrived at instantly.
+       Nothing is hidden from anyone who can't see the animation. */
+    @media (prefers-reduced-motion: reduce){
+      .landing-visual .lp-arch-node::before{ height:calc(100% - 34px); }
+      .landing-visual .lp-arch-icon{ background:var(--accent-wash); color:var(--accent-dim); }
+      .landing-visual .lp-arch-label{ color:var(--text-primary); }
+      .landing-visual .lp-card.is-flowing .lp-arch-node::before,
+      .landing-visual .lp-card.is-flowing .lp-arch-icon,
+      .landing-visual .lp-card.is-flowing .lp-arch-label{ animation:none; }
+    }
+  }
+
+  /* ---- Landing architecture card: compact ----
+     Six rows at ~57px plus card padding made this the tallest thing
+     on the page, and centring a narrow list inside a full-width card
+     left large empty margins either side. Rows are tightened to ~38px
+     and the icon scaled down, which cuts roughly 130px of height; the
+     list is then given a real width so the card is filled rather than
+     a thin column floating in white. */
+  @media (max-width:768px){
+    .landing-visual .lp-card{ padding:18px 18px 16px; }
+    .landing-visual .lp-card-head{ margin-bottom:14px; }
+
+    /* fill the card instead of shrink-wrapping the content */
+    .landing-visual .lp-arch-row{ width:100%; max-width:280px; }
+
+    .landing-visual .lp-arch-node{ padding:3px 0; gap:11px; }
+
+    .landing-visual .lp-arch-icon{
+      width:28px;
+      height:28px;
+      border-radius:8px;
+    }
+    .landing-visual .lp-arch-icon svg{ width:14px; height:14px; }
+    .landing-visual .lp-arch-label{ font-size:13.5px; }
+
+    /* connector geometry follows the smaller icon */
+    .landing-visual .lp-arch-node::before{
+      left:13px;
+      top:calc(50% + 15px);
+      height:calc(100% - 30px);
+    }
+    @keyframes archLine{ to{ height:calc(100% - 30px); } }
+    @media (prefers-reduced-motion: reduce){
+      .landing-visual .lp-arch-node::before{ height:calc(100% - 30px); }
+    }
+  }
+
+
+  /* ============================================================
+     Mobile landing — compact entry screen (<=768px).
+     The preview card is hidden here. On desktop it's the right-hand
+     column and earns its space; stacked on a phone it became the
+     tallest element on the page, sitting below a CTA most visitors
+     have already tapped. The architecture is taught by the
+     simulation itself, one tap away — so the landing does one job:
+     say what this is, disclose that it's a simulation, and offer a
+     single action. Desktop keeps all of it.
+     ============================================================ */
+  @media (max-width:768px){
+    #landing .landing-visual{ display:none; }
+
+    /* with the card gone the hero centres in the viewport rather
+       than sitting at the top of a long scroll */
+    #landing{ display:flex; flex-direction:column; }
+    .landing-inner{
+      flex:1;
+      justify-content:center;
+      padding-top:40px;
+      padding-bottom:24px;
+    }
+
+    /* the footer link is now the page's only element below the hero */
+  }
+
+  /* ============================================================
+     Landing footer.
+     Desktop: one inline row — tagline | copyright | GitHub.
+     Mobile:  stacked, GitHub first above a rule, then tagline and
+              copyright beneath it. Flex `order` reverses the
+              sequence at the breakpoint, so one markup block serves
+              both without duplicating anything.
+     ============================================================ */
+  .landing-footer{
+    padding:22px 24px 20px;
+    max-width:1180px;
+    margin:0 auto;
+  }
+  .lf-row{
+    display:flex; align-items:center; justify-content:center;
+    gap:16px; flex-wrap:wrap;
+  }
+  .lf-tagline{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:12.5px; font-weight:650; letter-spacing:-0.005em;
+    color:rgba(255,255,255,0.88);
+    margin:0;
+  }
+  .lf-shield{ display:flex; color:rgba(255,255,255,0.55); }
+  .lf-shield svg{ width:15px; height:15px; }
+  .lf-copy{ font-size:12.5px; color:rgba(169,180,201,0.7); }
+  .lf-divider{
+    width:1px; height:15px; background:rgba(255,255,255,0.14); flex-shrink:0;
+  }
+  .lf-gh{
+    display:inline-flex; align-items:center; gap:7px;
+    font-size:12.5px; font-weight:600;
+    color:rgba(255,255,255,0.82); text-decoration:none;
+    transition:color .18s ease;
+  }
+  .lf-gh svg{ width:15px; height:15px; }
+  .lf-gh:hover{ color:#fff; }
+
+  @media (max-width:768px){
+    .landing-footer{ padding:20px 20px calc(22px + env(safe-area-inset-bottom)); }
+
+    .lf-row{ flex-direction:column; gap:0; }
+
+    /* GitHub leads on mobile, separated by a rule from the two
+       informational lines below it */
+    .lf-gh{
+      order:1;
+      min-height:44px; padding:0 12px;
+      margin-bottom:16px;
+    }
+    /* the first divider becomes that full-width rule; the second is
+       redundant once the row is stacked */
+    .lf-row .lf-divider:first-of-type{
+      order:2;
+      width:100%; height:1px;
+      background:rgba(255,255,255,0.08);
+      margin-bottom:16px;
+    }
+    .lf-row .lf-divider:last-of-type{ display:none; }
+
+    .lf-tagline{ order:3; margin-bottom:7px; }
+    .lf-copy{ order:4; }
+  }
 </style>
 </head>
 <body>
 
 <div id="landing">
+
   <div class="landing-inner">
     <div>
       <div class="landing-word">
@@ -612,7 +1519,23 @@
       </div>
     </div>
   </div>
-  <p class="landing-footer-url">github.com/anirva09/bankgate-api</p>
+  <footer class="landing-footer">
+    <div class="lf-row">
+      <p class="lf-tagline">
+        <span class="lf-shield" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7.5 3.2V12c0 4.8-3.2 8.1-7.5 9.6C7.7 20.1 4.5 16.8 4.5 12V6.2L12 3z"/></svg>
+        </span>
+        Secure. Simulated. Educational.
+      </p>
+      <span class="lf-divider" aria-hidden="true"></span>
+      <span class="lf-copy">&copy; 2026 BankGate. All rights reserved.</span>
+      <span class="lf-divider" aria-hidden="true"></span>
+      <a class="lf-gh" href="https://github.com/anirva09/bankgate-api" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.5.5.09.66-.22.66-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 015 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.16.58.67.48A10 10 0 0022 12c0-5.52-4.48-10-10-10z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+  </footer>
 </div>
 
 <header class="topbar">
@@ -621,7 +1544,10 @@
       <div class="logo-badge" style="overflow:hidden; display:none;">
         <img src="data:image/png;base64,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" alt="BankGate" style="width:100%; height:100%; object-fit:cover;">
       </div>
-      Banking Operations Console<small>Powered by BankGate API Platform</small>
+      <span class="wordmark-text">
+        <span class="wordmark-title">Banking Operations Console</span>
+        <small>Powered by BankGate API Platform</small>
+      </span>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
       <button class="reset-btn" onclick="resetSession()">Reset session</button>
@@ -647,6 +1573,8 @@
     <button class="nav-item" onclick="scrollToRail('rail-trace')">Request Trace</button>
     <button class="nav-item" onclick="scrollToRail('rail-database')">Database</button>
     <button class="nav-item" onclick="scrollToRail('rail-tests')">Test Lab</button>
+
+    <div class="nav-group-label">Security</div>
     <button class="nav-item" data-view="security" onclick="switchView('security')">Security</button>
     <button class="nav-item" data-view="governance" onclick="switchView('governance')">Rate Limiting</button>
     <button class="nav-item" data-view="errorlab" onclick="switchView('errorlab')">Error Lab</button>
@@ -663,10 +1591,10 @@
     <section class="view-panel is-active" id="view-overview">
       <div class="view-head">
         <h1>Welcome to the Banking Operations Console</h1>
-        <p style="font-weight:700; color:var(--text-primary); margin:0 0 6px;">Experience the backend behind every banking operation.</p>
+        <p style="font-weight:500; font-size:14px; color:var(--text-primary); margin:0 0 6px;">Experience the backend behind every banking operation.</p>
         <p>Create a customer, open an account, verify KYC or run a transaction — then watch your request travel through OAuth 2.0, MuleSoft APIs and PostgreSQL, layer by layer.</p>
       </div>
-      <div class="stat-row">
+      <div class="stat-row kpi-strip">
         <div class="stat-card"><div class="stat-num" id="ov-cust">0</div><div class="stat-label">Customers</div></div>
         <div class="stat-card"><div class="stat-num" id="ov-acc">0</div><div class="stat-label">Accounts</div></div>
         <div class="stat-card"><div class="stat-num" id="ov-kyc">0</div><div class="stat-label">KYC records</div></div>
@@ -701,7 +1629,7 @@
         <div class="field"><label for="f-address">Address</label><input id="f-address" placeholder="Street, city, state, PIN code" /><div class="field-error" id="err-address"></div></div>
         <div class="field-error" id="f-err" style="margin-bottom:6px;"></div>
         <div class="btn-row">
-          <button class="btn btn-primary" onclick="submitCustomer(false)">Create customer</button>
+          <button class="btn btn-primary" id="btn-customer" onclick="submitCustomer(false)">Create customer</button>
           <button class="btn" id="dup-btn" onclick="submitCustomer(true)" disabled>Submit the same customer again</button>
         </div>
         <div class="cust-list">
@@ -730,7 +1658,7 @@
           <div class="field"><label for="acc-deposit">Opening deposit (₹)</label><input id="acc-deposit" placeholder="e.g. 5000" /><div class="field-error" id="err-acc-deposit"></div></div>
         </div>
         <div class="field-error" id="acc-err"></div>
-        <div class="btn-row"><button class="btn btn-primary" onclick="submitAccount()">Open account</button></div>
+        <div class="btn-row"><button class="btn btn-primary" id="btn-account" onclick="submitAccount()">Open account</button></div>
         <div class="cust-list">
           <p class="cust-list-title">Accounts opened this session</p>
           <div id="acc-rows"><p class="empty-hint">Nothing yet — open an account above.</p></div>
@@ -760,7 +1688,7 @@
           </select>
         </div>
         <div class="field-error" id="kyc-err"></div>
-        <div class="btn-row"><button class="btn btn-primary" onclick="submitKyc()">Submit KYC</button></div>
+        <div class="btn-row"><button class="btn btn-primary" id="btn-kyc" onclick="submitKyc()">Submit KYC</button></div>
         <div class="cust-list">
           <p class="cust-list-title">KYC records submitted this session</p>
           <div id="kyc-rows"><p class="empty-hint">Nothing yet — submit a verification above.</p></div>
@@ -783,7 +1711,7 @@
           <div class="field" id="tx-to-wrap"><label for="tx-to">To account</label><select id="tx-to"></select></div>
         </div>
         <div class="field-error" id="tx-err"></div>
-        <div class="btn-row"><button class="btn btn-primary" onclick="submitTransaction()">Run transaction</button></div>
+        <div class="btn-row"><button class="btn btn-primary" id="btn-transaction" onclick="submitTransaction()">Run transaction</button></div>
         <div class="cust-list">
           <p class="cust-list-title">Transactions run this session</p>
           <div id="tx-rows"><p class="empty-hint">Nothing yet — run a transaction above.</p></div>
@@ -796,7 +1724,7 @@
       <div class="view-head"><h1>Dashboard</h1><p>Pulls from Customer, Account, KYC, and Transaction System APIs and combines them in one DataWeave response.</p></div>
       <div class="card">
         <div class="field"><label for="dash-customer">Customer</label><select id="dash-customer"></select></div>
-        <div class="btn-row"><button class="btn btn-primary" onclick="loadDashboard()">Load dashboard</button></div>
+        <div class="btn-row"><button class="btn btn-primary" id="btn-dashboard" onclick="loadDashboard()">Load dashboard</button></div>
         <div id="dash-out" style="margin-top:18px;"></div>
       </div>
     </section>
@@ -1068,12 +1996,12 @@
       <div class="gh-card">
         <div>
           <p class="proj-eyebrow" style="color:#fff; opacity:0.7;">Explore the source</p>
-          <p style="font-weight:800; font-size:19px; margin:0 0 8px; color:var(--text-primary);">Explore the real implementation.</p>
+          <p style="font-weight:600; font-size:20px; letter-spacing:-0.015em; margin:0 0 8px; color:var(--text-primary);">Explore the real implementation.</p>
           <p style="font-size:13px; color:var(--text-secondary); line-height:1.6; margin:0; max-width:560px;">The simulator is a visual demonstration of the architecture. The actual MuleSoft integration project, API definitions, configuration, database resources and tests are maintained in the GitHub repository.</p>
         </div>
         <a class="gh-btn" href="https://github.com/anirva09/bankgate-api" target="_blank" rel="noopener noreferrer">View Project on GitHub →</a>
         <div>
-          <p class="gh-repo" style="margin:0 0 2px; font-weight:700; color:var(--text-primary);">Source repository</p>
+          <p class="gh-repo" style="margin:0 0 2px; font-weight:600; color:var(--text-primary);">Source repository</p>
           <p class="gh-repo" style="margin:0;">github.com/anirva09/bankgate-api</p>
         </div>
       </div>
@@ -1133,7 +2061,7 @@
           <div class="flow-arrow is-success"><svg viewBox="0 0 20 20" fill="none"><path d="M5 7l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
           <div class="flow-node" style="cursor:default;"><div class="flow-text"><div class="flow-title">Response</div></div></div>
         </div>
-        <p style="font-size:14px; font-weight:700; color:var(--text-primary); margin:18px 0 14px;">Experience the backend</p>
+        <p style="font-size:16px; font-weight:600; letter-spacing:-0.01em; color:var(--text-primary); margin:18px 0 14px;">Experience the backend</p>
         <div class="btn-row"><button class="btn btn-primary" onclick="switchView('overview')">Start Simulation →</button></div>
       </div>
 
@@ -1150,7 +2078,7 @@
 
     <div class="card rail-card" id="rail-architecture">
       <div class="win-chrome"><span class="win-title">Architecture</span><span class="win-hint">click a tier</span></div>
-      <p style="font-size:10.5px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin:-8px 0 14px;">BankGate integration flow</p>
+      <p style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin:-8px 0 14px;">BankGate integration flow</p>
       <div class="flow-row" id="flow-row"></div>
     </div>
 
@@ -1218,6 +2146,78 @@
   </div>
 </div>
 
+<!-- ============================================================
+     Mobile bottom tab bar — exactly 5 items, mobile-only (hidden
+     on desktop via CSS). Reuses the existing switchView() JS by
+     giving the first four buttons the same data-view attributes
+     the desktop sidebar already uses, so nothing about routing,
+     hash deep-linking, or view switching had to change.
+     ============================================================ -->
+<nav class="mobile-tabbar" aria-label="Primary">
+  <button class="mnav-item is-active" data-view="overview" onclick="switchView('overview')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.6"/></svg>
+    <span>Dashboard</span>
+  </button>
+  <button class="mnav-item" data-view="customers" onclick="switchView('customers')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c1.2-4 4-6 7-6s5.8 2 7 6"/></svg>
+    <span>Customers</span>
+  </button>
+  <button class="mnav-item" data-view="accounts" onclick="switchView('accounts')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="7" width="18" height="13" rx="2.2"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1" fill="currentColor" stroke="none"/></svg>
+    <span>Accounts</span>
+  </button>
+  <button class="mnav-item" data-view="transactions" onclick="switchView('transactions')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></svg>
+    <span>Transactions</span>
+  </button>
+  <button class="mnav-item" id="mnav-more" onclick="toggleMoreSheet()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+    <span>More</span>
+  </button>
+</nav>
+
+<!-- ============================================================
+     More sheet — secondary sections that don't fit in a 5-item
+     bar. Real, working views call the same switchView() as
+     everywhere else, grouped and labeled to mirror the desktop
+     sidebar: Banking, Integration, Security, Project.
+     ============================================================ -->
+<div class="more-backdrop" id="more-backdrop" onclick="closeMoreSheet()"></div>
+<div class="more-sheet" id="more-sheet" role="dialog" aria-label="More">
+  <div class="more-sheet-handle"></div>
+  <div class="more-sheet-head">
+    <span>More</span>
+    <button class="more-sheet-close" onclick="closeMoreSheet()" aria-label="Close">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2L12 12M12 2L2 12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="more-sheet-body">
+    <div class="more-group">
+      <div class="more-group-label">Banking</div>
+      <button class="more-row" onclick="goToView('kyc')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg></span><span class="more-row-text"><span class="more-row-title">KYC</span><span class="more-row-sub">Identity verification &amp; compliance</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+      <button class="more-row" onclick="goToView('dashboard')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.6"/></svg></span><span class="more-row-text"><span class="more-row-title">Dashboard</span><span class="more-row-sub">Combined account &amp; transaction view</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+    </div>
+    <div class="more-group">
+      <div class="more-group-label">Integration</div>
+      <button class="more-row" onclick="goToRail('rail-architecture')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="19" r="2.2"/><circle cx="19" cy="19" r="2.2"/><path d="M12 7.2V13M12 13L6.3 17.3M12 13l5.7 4.3"/></svg></span><span class="more-row-text"><span class="more-row-title">Architecture</span><span class="more-row-sub">BankGate integration flow</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+      <button class="more-row" onclick="goToRail('rail-trace')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="19" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg></span><span class="more-row-text"><span class="more-row-title">Request Trace</span><span class="more-row-sub">Follow a request through every tier</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+      <button class="more-row" onclick="goToRail('rail-database')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5V18c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V5.5"/><path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/></svg></span><span class="more-row-text"><span class="more-row-title">Database</span><span class="more-row-sub">Inspect simulated persistence</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+      <button class="more-row" onclick="goToRail('rail-tests')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 3h6M10 3v5.2L5.5 17a2 2 0 001.8 3h9.4a2 2 0 001.8-3L14 8.2V3"/></svg></span><span class="more-row-text"><span class="more-row-title">Test Lab</span><span class="more-row-sub">MUnit test results</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+    </div>
+    <div class="more-group">
+      <div class="more-group-label">Security</div>
+      <button class="more-row" onclick="goToView('security')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg></span><span class="more-row-text"><span class="more-row-title">Security</span><span class="more-row-sub">Authentication &amp; security controls</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+      <button class="more-row" onclick="goToView('governance')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="more-row-text"><span class="more-row-title">Rate Limiting</span><span class="more-row-sub">API governance &amp; throttling</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+      <button class="more-row" onclick="goToView('errorlab')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></span><span class="more-row-text"><span class="more-row-title">Error Lab</span><span class="more-row-sub">Structured error scenarios</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+      <button class="more-row" onclick="goToView('chaos')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg></span><span class="more-row-text"><span class="more-row-title">Chaos Mode</span><span class="more-row-sub">Resilience &amp; failure simulation</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+    </div>
+    <div class="more-group">
+      <div class="more-group-label">Project</div>
+      <button class="more-row" onclick="goToView('project')"><span class="more-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 18c-4.5 1.5-4.5-1.5-6-2m12 6v-3.4c0-.9-.3-1.5-.7-1.8 2.2-.2 4.6-1.1 4.6-5A3.9 3.9 0 0018 8.8c.4-1 .4-2 0-3.1 0 0-.9-.3-3 1.1a10 10 0 00-5.5 0C7.4 5.4 6.5 5.7 6.5 5.7c-.4 1.1-.4 2.1 0 3.1A3.9 3.9 0 005.4 11.8c0 3.9 2.4 4.8 4.6 5-.3.3-.6.9-.7 1.7V22"/></svg></span><span class="more-row-text"><span class="more-row-title">Project &amp; Setup</span><span class="more-row-sub">Repo, docs &amp; setup notes</span></span><span class="more-row-chev"><svg viewBox="0 0 20 20" fill="none"><path d="M7 10l6 0M13 7l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ============================================================
    Icons
@@ -1241,8 +2241,15 @@ const ICONS = {
 function switchView(view){
   document.querySelectorAll('.view-panel').forEach(v => v.classList.remove('is-active'));
   document.getElementById('view-' + view).classList.add('is-active');
-  document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.toggle('is-active', n.dataset.view === view));
+  document.querySelectorAll('.nav-item[data-view], .mnav-item[data-view]').forEach(n => n.classList.toggle('is-active', n.dataset.view === view));
+  // On desktop, .main-col is the scroll container (overflow-y:auto at
+  // >=961px), so scrolling it is what moves the view. On mobile that rule
+  // doesn't apply and the whole page scrolls on the window instead, so
+  // scrolling only .main-col left you part-way down the previous page.
+  // Do both — each is a no-op on the breakpoint where it isn't the
+  // scroller, so this needs no width check.
   document.querySelector('.main-col').scrollTo({ top:0, behavior:'smooth' });
+  window.scrollTo({ top:0, behavior:'smooth' });
   safeUpdateHash('#view=' + view);
 }
 
@@ -1350,11 +2357,57 @@ function randLatency(node, isError){
   return Math.floor(range[0] + Math.random() * (range[1] - range[0]));
 }
 
+/* ============================================================
+   Batch 1 helpers — haptics, busy state, invalid-field handling.
+   ============================================================ */
+
+/* Short tick on success, double pulse on failure. navigator.vibrate is
+   Android/Chrome only — iOS Safari doesn't implement it — so this is a
+   progressive enhancement, guarded and silent where unsupported. */
+function haptic(ok){
+  if (!('vibrate' in navigator)) return;
+  try { navigator.vibrate(ok ? 12 : [10, 60, 10]); } catch(e){ /* no-op */ }
+}
+
+/* The engine sets this while a trace runs so finish() can clear it. */
+let activeBusyBtn = null;
+function setBusy(btnId){
+  const btn = btnId && document.getElementById(btnId);
+  if (!btn) return;
+  btn.classList.add('is-busy');
+  btn.setAttribute('aria-busy', 'true');
+  activeBusyBtn = btn;
+}
+function clearBusy(){
+  if (!activeBusyBtn) return;
+  activeBusyBtn.classList.remove('is-busy');
+  activeBusyBtn.removeAttribute('aria-busy');
+  activeBusyBtn = null;
+}
+
+/* Marks a field invalid and, for the first one, brings it into view.
+   Without this the error text can render off-screen on a phone. */
+function markInvalid(inputId, isFirst){
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  el.classList.add('is-invalid');
+  if (isFirst){
+    el.scrollIntoView({ behavior:'smooth', block:'center' });
+  }
+}
+function clearInvalid(ids){
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('is-invalid');
+  });
+}
+
 const BankGateEngine = {
   running:false,
   run(scenario){
     if (this.running) return;
     this.running = true;
+    setBusy(scenario.busyBtn);
     scrollToRail('rail-architecture', false);
     resetFlow();
     const log = document.getElementById('trace-log');
@@ -1429,12 +2482,34 @@ const BankGateEngine = {
     const finish = () => {
       this.running = false;
       const ok = !scenario.steps.some(s => s.status === 'error');
+      clearBusy();
+      haptic(ok);
       statusChip.textContent = scenario.finalLabel || (ok ? '200 OK' : 'failed');
       statusChip.classList.add(ok ? 'ok' : 'err');
       const latChip = document.getElementById('latency-chip');
       latChip.textContent = 'Total ' + totalLatency + 'ms';
       latChip.style.display = 'inline-flex';
-      setTimeout(() => scrollToRail('rail-trace', false), 350);
+      // Most runs end by settling on the trace card, since that's the
+      // payoff. The lab views (Security, Rate Limiting, Error Lab, Chaos,
+      // Dashboard) instead render their own result — a JSON block or a
+      // stat card — back up in the main column, so those pass a
+      // resultTarget and we settle on that result rather than the rail
+      // below it. Falls back to the top of the page when a scenario wants
+      // to come back up but has no single result element of its own.
+      if (scenario.resultTarget || scenario.returnToTop){
+        setTimeout(() => {
+          const target = scenario.resultTarget && document.getElementById(scenario.resultTarget);
+          if (target){
+            target.scrollIntoView({ behavior:'smooth', block:'center' });
+          } else {
+            const main = document.querySelector('.main-col');
+            if (main) main.scrollTo({ top:0, behavior:'smooth' });
+            window.scrollTo({ top:0, behavior:'smooth' });
+          }
+        }, 450);
+      } else {
+        setTimeout(() => scrollToRail('rail-trace', false), 350);
+      }
       if (scenario.onDone) scenario.onDone({ ok });
     };
     tick();
@@ -1444,8 +2519,46 @@ const BankGateEngine = {
 /* ============================================================
    Customer domain
    ============================================================ */
-let customers = [];
-let lastSubmitted = null;
+/* ============================================================
+   Session persistence.
+   Backgrounding the browser or refreshing previously wiped every
+   customer, account, KYC record and transaction — someone tapping
+   around, taking a call, and coming back found an empty console.
+   sessionStorage (not localStorage) is deliberate: state should
+   survive a refresh or an app switch within the visit, but a fresh
+   visit should still start clean, the way a simulation should.
+   Every read/write is guarded — Safari private mode throws on
+   sessionStorage access, and a demo must not die because of it.
+   ============================================================ */
+const STORE_KEY = 'bankgate.session.v1';
+
+function loadState(){
+  try {
+    const raw = sessionStorage.getItem(STORE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // shape-check rather than trusting whatever is in storage
+    if (!parsed || !Array.isArray(parsed.customers)) return null;
+    return parsed;
+  } catch(e){ return null; }
+}
+
+function saveState(){
+  try {
+    sessionStorage.setItem(STORE_KEY, JSON.stringify({
+      customers, accounts, kycRecords, transactions, lastSubmitted
+    }));
+  } catch(e){ /* private mode / quota — persistence is best-effort */ }
+}
+
+function clearState(){
+  try { sessionStorage.removeItem(STORE_KEY); } catch(e){ /* no-op */ }
+}
+
+const _restored = loadState();
+
+let customers = _restored ? _restored.customers : [];
+let lastSubmitted = _restored ? (_restored.lastSubmitted || null) : null;
 
 const VALIDATORS = {
   'f-fname':   { test: v => v.length >= 2,                         msg: 'Enter a first name.' },
@@ -1472,16 +2585,22 @@ function submitCustomer(isRetry){
     vals = lastSubmitted;
   } else {
     ids.forEach(id => vals[id] = document.getElementById(id).value.trim());
+    clearInvalid(ids);
     let hasError = false;
     ids.forEach(id => {
       const rule = VALIDATORS[id];
       if (!rule.test(vals[id])){
         const el = document.getElementById('err-' + id.slice(2));
         if (el) el.textContent = rule.msg;
+        markInvalid(id, !hasError);
         hasError = true;
       }
     });
-    if (hasError){ err.textContent = 'Fix the highlighted fields before creating the customer.'; return; }
+    if (hasError){
+      err.textContent = 'Fix the highlighted fields before creating the customer.';
+      haptic(false);
+      return;
+    }
   }
   err.textContent = '';
 
@@ -1505,6 +2624,7 @@ function submitCustomer(isRetry){
 
   BankGateEngine.run({
     steps,
+    busyBtn:'btn-customer',
     finalLabel: duplicate ? '409 CONFLICT' : '201 Created',
     onDone: () => {
       if (!duplicate){
@@ -1520,6 +2640,7 @@ function submitCustomer(isRetry){
 }
 
 function updateSummary(){
+  saveState();
   document.getElementById('ov-cust').textContent = customers.length;
   document.getElementById('ov-acc').textContent = accounts.length;
   document.getElementById('ov-kyc').textContent = kycRecords.length;
@@ -1607,7 +2728,7 @@ function resolveCustomerId(prefix){
 /* ============================================================
    Accounts domain
    ============================================================ */
-let accounts = [];
+let accounts = _restored ? (_restored.accounts || []) : [];
 
 function submitAccount(){
   const err = document.getElementById('acc-err');
@@ -1619,8 +2740,14 @@ function submitAccount(){
   const depositRaw = document.getElementById('acc-deposit').value.trim();
   const deposit = Number(depositRaw);
 
-  if (!customerId){ err.textContent = 'Choose or enter a customer ID first.'; return; }
-  if (!depositRaw || isNaN(deposit) || deposit <= 0){ depErr.textContent = 'Enter a positive opening deposit.'; return; }
+  clearInvalid(['acc-deposit']);
+  if (!customerId){ err.textContent = 'Choose or enter a customer ID first.'; haptic(false); return; }
+  if (!depositRaw || isNaN(deposit) || deposit <= 0){
+    depErr.textContent = 'Enter a positive opening deposit.';
+    markInvalid('acc-deposit', true);
+    haptic(false);
+    return;
+  }
 
   const custExists = customers.some(c => c.id === customerId);
 
@@ -1640,6 +2767,7 @@ function submitAccount(){
 
   BankGateEngine.run({
     steps,
+    busyBtn:'btn-account',
     finalLabel: custExists ? '201 Created' : '404 NOT FOUND',
     onDone: () => {
       if (custExists){
@@ -1685,7 +2813,7 @@ function refreshAccountPicker(selectId){
 /* ============================================================
    KYC domain
    ============================================================ */
-let kycRecords = [];
+let kycRecords = _restored ? (_restored.kycRecords || []) : [];
 
 function submitKyc(){
   const err = document.getElementById('kyc-err');
@@ -1693,7 +2821,7 @@ function submitKyc(){
 
   const customerId = resolveCustomerId('kyc');
   const status = document.getElementById('kyc-status').value;
-  if (!customerId){ err.textContent = 'Choose or enter a customer ID first.'; return; }
+  if (!customerId){ err.textContent = 'Choose or enter a customer ID first.'; haptic(false); return; }
 
   const custExists = customers.some(c => c.id === customerId);
   const invalidStatus = status === 'UNKNOWN';
@@ -1718,6 +2846,7 @@ function submitKyc(){
 
   BankGateEngine.run({
     steps,
+    busyBtn:'btn-kyc',
     finalLabel: !custExists ? '404 NOT FOUND' : (invalidStatus ? '500 · BANK-5000' : '201 Created'),
     onDone: () => {
       if (custExists && !invalidStatus){
@@ -1743,7 +2872,7 @@ function renderKyc(){
 /* ============================================================
    Transactions domain
    ============================================================ */
-let transactions = [];
+let transactions = _restored ? (_restored.transactions || []) : [];
 
 function toggleTxType(){
   const type = document.getElementById('tx-type').value;
@@ -1761,9 +2890,15 @@ function submitTransaction(){
   const fromId = document.getElementById('tx-from').value;
   const toId = document.getElementById('tx-to').value;
 
-  if (!fromId){ err.textContent = 'Choose a from-account first.'; return; }
-  if (!amountRaw || isNaN(amount) || amount <= 0){ amtErr.textContent = 'Enter a positive amount.'; return; }
-  if (type === 'TRANSFER' && (!toId || toId === fromId)){ err.textContent = 'Choose a different to-account for a transfer.'; return; }
+  clearInvalid(['tx-amount']);
+  if (!fromId){ err.textContent = 'Choose a from-account first.'; haptic(false); return; }
+  if (!amountRaw || isNaN(amount) || amount <= 0){
+    amtErr.textContent = 'Enter a positive amount.';
+    markInvalid('tx-amount', true);
+    haptic(false);
+    return;
+  }
+  if (type === 'TRANSFER' && (!toId || toId === fromId)){ err.textContent = 'Choose a different to-account for a transfer.'; haptic(false); return; }
 
   const fromAcc = accounts.find(a => a.id === fromId);
   const toAcc = type === 'TRANSFER' ? accounts.find(a => a.id === toId) : null;
@@ -1791,6 +2926,7 @@ function submitTransaction(){
 
   BankGateEngine.run({
     steps,
+    busyBtn:'btn-transaction',
     finalLabel: failed ? (insufficient ? '402 · BANK-4002' : '404 · BANK-4042') : '201 Created',
     onDone: () => {
       if (failed) return;
@@ -1866,6 +3002,8 @@ function loadDashboard(){
         { node:'system',     title:'Aggregated',        sub:'Four System API responses combined via DataWeave', status:'ok' },
       ],
       finalLabel:'200 OK',
+      busyBtn:'btn-dashboard',
+      resultTarget:'dash-out',
     });
   }, 350);
 }
@@ -2006,6 +3144,13 @@ refreshDashPicker();
 toggleTxType();
 renderCustomers();
 
+/* Restored sessions need their UI state re-derived: the duplicate-customer
+   button is only meaningful once a customer has actually been submitted. */
+if (lastSubmitted){
+  const dupBtn = document.getElementById('dup-btn');
+  if (dupBtn) dupBtn.disabled = false;
+}
+
 /* ============================================================
    Landing page
    ============================================================ */
@@ -2037,7 +3182,8 @@ function runAuthScenario(){
         { node:'experience', title:'Allowed', sub:'Experience API :8080 forwards to Process API', status:'ok' },
         { node:'process', title:'Allowed', sub:'Process API :8082 continues business logic', status:'ok' },
       ],
-      finalLabel:'200 OK'
+      finalLabel:'200 OK',
+      returnToTop:true
     });
   } else if (selectedAuthState === 'invalid'){
     BankGateEngine.run({
@@ -2045,7 +3191,8 @@ function runAuthScenario(){
         { node:'client', title:'Client request', sub:'GET /accounts with a tampered token', status:'ok' },
         { node:'auth',   title:'Token rejected', sub:'BANK-4001 — signature verification failed', status:'error' },
       ],
-      finalLabel:'401 UNAUTHORIZED'
+      finalLabel:'401 UNAUTHORIZED',
+      returnToTop:true
     });
   } else {
     BankGateEngine.run({
@@ -2053,7 +3200,8 @@ function runAuthScenario(){
         { node:'client', title:'Client request', sub:'GET /accounts — no Authorization header', status:'ok' },
         { node:'auth',   title:'Token missing', sub:'Request blocked before reaching Experience API', status:'error' },
       ],
-      finalLabel:'401 UNAUTHORIZED'
+      finalLabel:'401 UNAUTHORIZED',
+      returnToTop:true
     });
   }
 }
@@ -2079,6 +3227,12 @@ function runRateLimitBurst(){
       if (i === 5){
         btn.disabled = false;
         explain.innerHTML = '<p class="dash-empty">API Manager rejected request 5 at the gateway — it never reached Process API or System API.</p>';
+        // This demo never runs through BankGateEngine (it's gateway-level,
+        // so there's no tier trace), so it needs its own settle-on-result
+        // scroll rather than the engine's resultTarget.
+        setTimeout(() => {
+          explain.scrollIntoView({ behavior:'smooth', block:'center' });
+        }, 450);
       }
     }, i * 400);
   }
@@ -2124,6 +3278,7 @@ function runErrorLabScenario(){
   BankGateEngine.run({
     steps: sc.steps,
     finalLabel: `${sc.status} · ${sc.code}`,
+    resultTarget:'err-json',
     onDone: () => {
       jsonBox.innerHTML =
 `<span class="status-err">HTTP ${sc.status}</span>
@@ -2212,6 +3367,7 @@ function runChaosScenario(){
   BankGateEngine.run({
     steps: sc.steps,
     finalLabel: isRandom ? (sc.ok ? '200 OK' : `${sc.status} · ${sc.code}`) : `${sc.status} · ${sc.code}`,
+    resultTarget:'chaos-json',
     onDone: ({ ok }) => {
       if (isRandom && ok){
         jsonBox.innerHTML =
@@ -2243,6 +3399,7 @@ function runChaosScenario(){
 function resetSession(){
   customers = []; accounts = []; kycRecords = []; transactions = [];
   lastSubmitted = null;
+  clearState();
   document.getElementById('dup-btn').disabled = true;
   ['f-fname','f-lname','f-email','f-pass','f-phone','f-aadhaar','f-pan','f-address',
    'acc-manual-id','acc-deposit','kyc-manual-id','tx-amount'].forEach(id => {
@@ -2250,6 +3407,9 @@ function resetSession(){
     if (el) el.value = '';
   });
   clearFieldErrors();
+  clearBusy();
+  clearInvalid(['f-fname','f-lname','f-email','f-pass','f-phone','f-aadhaar','f-pan','f-address',
+                'acc-deposit','tx-amount']);
   document.getElementById('f-err').textContent = '';
   document.getElementById('acc-err').textContent = '';
   document.getElementById('kyc-err').textContent = '';
@@ -2296,6 +3456,134 @@ function applyHash(){
 
 window.addEventListener('hashchange', applyHash);
 applyHash();
+
+/* ============================================================
+   Landing architecture card — reveal the flow on scroll.
+   The card sits below the fold, so firing on load would mean the
+   animation finishes before anyone sees it. IntersectionObserver
+   starts it the moment the card is genuinely on screen, once.
+   Guarded: where the API is unavailable, the class is applied
+   immediately rather than the card being left in its zero state.
+   ============================================================ */
+(function initArchFlow(){
+  const card = document.querySelector('.landing-visual .lp-card');
+  if (!card) return;
+
+  const start = () => card.classList.add('is-flowing');
+
+  if (!('IntersectionObserver' in window)){ start(); return; }
+
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting){
+        start();
+        io.disconnect();
+      }
+    });
+  }, { threshold: 0.35 });
+
+  io.observe(card);
+})();
+
+/* ============================================================
+   Mobile More sheet + bottom tab bar sync.
+   Wraps the existing switchView (rather than editing it) so the
+   "More" tab lights up whenever the current view is one of the
+   secondary sections, and stays off otherwise. The four primary
+   mnav-item buttons already sync themselves for free, since they
+   carry the same data-view attributes switchView already looks for.
+   ============================================================ */
+const PRIMARY_MOBILE_VIEWS = ['overview', 'customers', 'accounts', 'transactions'];
+
+function openMoreSheet(){
+  document.getElementById('more-sheet').classList.add('is-open');
+  document.getElementById('more-backdrop').classList.add('is-open');
+}
+function closeMoreSheet(){
+  document.getElementById('more-sheet').classList.remove('is-open');
+  document.getElementById('more-backdrop').classList.remove('is-open');
+}
+function toggleMoreSheet(){
+  const open = document.getElementById('more-sheet').classList.contains('is-open');
+  if (open) closeMoreSheet(); else openMoreSheet();
+}
+function goToView(view){
+  switchView(view);
+  closeMoreSheet();
+}
+function goToRail(id){
+  // The system rail (Architecture / Request Trace / Database / Test Lab)
+  // renders beneath every view on mobile rather than as its own page, so
+  // jumping to it just needs to close the sheet and scroll — no view
+  // switch required.
+  closeMoreSheet();
+  setTimeout(() => scrollToRail(id), 280);
+}
+
+const _switchViewCore = switchView;
+switchView = function(view){
+  _switchViewCore(view);
+  const moreTab = document.getElementById('mnav-more');
+  if (moreTab) moreTab.classList.toggle('is-active', !PRIMARY_MOBILE_VIEWS.includes(view));
+};
+
+/* ============================================================
+   Card press feedback — pointer-driven rather than CSS :active.
+   Reason: :active bubbles to every ancestor of whatever the user
+   pressed, so a plain `.card:active{ transform:scale(.98) }` would
+   also fire every time someone pressed a button *inside* a card
+   (e.g. "+ New customer"), compounding with that button's own
+   0.97 press into a visibly double shrink. This only arms the
+   card's own 0.98 press when the pointer actually landed on the
+   card's surface — not on a button, link, or other row with its
+   own onclick — so each tap target moves once, not twice.
+   ============================================================ */
+(function initCardPress(){
+  const INTERACTIVE = 'button, a, input, select, textarea, [role="button"], [onclick]';
+  let pressedCard = null;
+
+  function release(){
+    if (pressedCard){ pressedCard.classList.remove('is-pressed'); pressedCard = null; }
+  }
+
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const card = e.target.closest('.card');
+    if (!card) return;
+    // Walk up from the exact pressed element to the card; if anything
+    // along the way is its own interactive control, this press belongs
+    // to that control, not the card shell around it.
+    let el = e.target;
+    while (el && el !== card){
+      if (el.matches && el.matches(INTERACTIVE)) return;
+      el = el.parentElement;
+    }
+    pressedCard = card;
+    card.classList.add('is-pressed');
+  }, {passive:true});
+
+  document.addEventListener('pointerup', release, {passive:true});
+  document.addEventListener('pointercancel', release, {passive:true});
+  // A press that turns into a scroll (common on touch) shouldn't leave
+  // the card stuck in its pressed state.
+  document.addEventListener('scroll', release, {passive:true, capture:true});
+  window.addEventListener('blur', release);
+})();
+
+/* ============================================================
+   Escape-to-close for the More sheet and the side panel. Neither
+   had a keyboard dismiss path before — only the X button or a
+   click on the backdrop — which is a real gap for anyone not
+   using a mouse/touch to close them. Closes whichever is open;
+   the sheet takes priority since it renders above the panel.
+   ============================================================ */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const sheet = document.getElementById('more-sheet');
+  if (sheet && sheet.classList.contains('is-open')){ closeMoreSheet(); return; }
+  const panel = document.getElementById('side-panel');
+  if (panel && panel.classList.contains('is-open')){ closePanel(); }
+});
 </script>
 </body>
 </html>
