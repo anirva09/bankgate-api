@@ -137,6 +137,13 @@
   /* ---------- main column ---------- */
   .main-col{padding:28px 28px 60px; min-width:0;}
   @media (min-width:961px){ .main-col{height:calc(100vh - var(--header-h)); height:calc(100dvh - var(--header-h)); overflow-y:auto; -webkit-overflow-scrolling:touch;} }
+  @media (max-width:960px){
+    .main-col{
+      min-height:0;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+    }
+  }
   @media (max-width:720px){ .main-col{padding:20px 16px 48px;} }
   .view-panel{display:none;}
   .view-panel.is-active{display:block; animation:viewIn .2s var(--ease-tap);}
@@ -428,6 +435,7 @@
   body.body-locked{ overflow-y:hidden !important; height:100%; }
   #landing{
     position:fixed; inset:0; z-index:200; overflow-y:auto;
+    min-height:100dvh; touch-action:pan-y; overscroll-behavior:contain;
     background:
       radial-gradient(60% 55% at 100% 100%, #00B4E8 0%, #0090D6 22%, rgba(0,90,190,0.55) 42%, transparent 68%),
       linear-gradient(135deg, #05070F 0%, #070B1C 30%, #0A1330 55%, #0C1F4A 75%, #0E3B6E 100%);
@@ -1416,16 +1424,6 @@
      ============================================================ */
   @media (max-width:768px){
     #landing .landing-visual{ display:none; }
-
-    /* with the card gone the hero centres in the viewport rather
-       than sitting at the top of a long scroll */
-    #landing{ display:flex; flex-direction:column; }
-    .landing-inner{
-      flex:1;
-      justify-content:center;
-      padding-top:40px;
-      padding-bottom:24px;
-    }
 
     /* the footer link is now the page's only element below the hero */
   }
