@@ -175,13 +175,13 @@
   }
 
   /* ---------- shared card ---------- */
-  .card{background:var(--card); border:1px solid var(--card-border); box-shadow:var(--shadow-card); border-radius:var(--radius-lg); padding:28px 28px 30px; margin-bottom:20px; transition:box-shadow .3s var(--ease), transform var(--dur-tap) var(--ease-tap); will-change:transform;}
+  .card{background:var(--card); border:1px solid var(--card-border); box-shadow:var(--shadow-card); border-radius:var(--radius-lg); padding:28px 28px 30px; margin-bottom:20px; transition:box-shadow .3s var(--ease), transform var(--dur-tap) var(--ease-tap);}
   .card:hover{box-shadow:var(--shadow-hover);}
   /* .is-pressed is applied by JS only when the press lands on the card's
      own surface, not on a button/link/row inside it — see the press-
      feedback script at the end of the file. That keeps a "+ New customer"
      button's own 0.97 press from compounding with the card's 0.98. */
-  .card.is-pressed{transform:scale(0.98);}
+  .card.is-pressed{transform:scale(0.98); will-change:transform;}
   .card-eyebrow{font-size:11px; font-weight:600; color:var(--text-muted); letter-spacing:0.06em; text-transform:uppercase; margin:0 0 4px;}
   .card-title{font-weight:600; font-size:20px; letter-spacing:-0.015em; margin:0 0 18px; color:var(--text-primary);}
 
