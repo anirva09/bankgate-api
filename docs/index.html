@@ -256,7 +256,20 @@
   /* ---------- rail ---------- */
   .rail{padding:20px 20px 60px; position:sticky; top:var(--header-h); height:calc(100vh - var(--header-h)); height:calc(100dvh - var(--header-h)); overflow-y:auto; display:flex; flex-direction:column; gap:18px; border-left:1px solid var(--card-border);}
   .rail.is-hidden-view{ display:none; }
-  @media (max-width:960px){ .rail{position:static; height:auto; border-left:none; border-top:1px solid var(--card-border);} }
+  @media (max-width:960px){
+    .rail{
+      position:static; height:auto; border-left:none; border-top:1px solid var(--card-border);
+      /* Desktop's overflow-y:auto never gets cleared here otherwise.
+         height:auto means it should never actually need to scroll
+         internally on mobile, but leaving overflow-y:auto declared
+         can still make some Android browsers register this as a
+         separate scrollable node purely because the property is
+         set — which competes with the real page scroll for the
+         same touch gesture and can feel like scrolling gets stuck
+         partway and needs a second or third swipe to continue. */
+      overflow-y:visible;
+    }
+  }
   .rail-card{margin-bottom:0;}
   .rail-card.flash{animation:flashHighlight 1.3s ease;}
   @keyframes flashHighlight{
