@@ -755,10 +755,11 @@
      ------------------------------------------------------------ */
   @media (max-width:780px){
     .side-nav{ display:none; }
-    /* Clears the fixed bottom tab bar on mobile — the rail now
-       renders identically on every view, so this padding always
-       has real content sitting above it, not empty space. */
-    .main-col{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
+    /* main-col's own tab-bar clearance now lives in one place only —
+       see the Project & Setup exception below, where the rail is
+       hidden and main-col becomes genuinely last. Everywhere else
+       the rail follows main-col and carries the real clearance
+       itself, so a second copy here was pure dead space. */
     .rail{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
   }
 
@@ -1063,12 +1064,23 @@
 
   /* ---- Bottom nav can never sit on top of content ---- */
   @media (max-width:780px){
-    /* main-col also needs this clearance directly — it's the last
-       thing on screen whenever the rail is empty/hidden for the
-       active view, not only when the rail follows it. */
-    .main-col{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
     .rail{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
     .more-sheet-body{ padding-bottom:calc(28px + env(safe-area-inset-bottom)); }
+
+    /* Project & Setup is a static reference page. It doesn't need
+       its own copy of the live simulation rail below it — tapping
+       Architecture / Request Trace / Database / Test Lab from here
+       already jumps to Overview first (goToOverviewRail), so the
+       rail being absent here breaks nothing functionally. Showing
+       it anyway put Project & Setup's own architecture-explanation
+       prose immediately before the live Architecture/Trace/
+       Governance/Test cards — which reads as duplicate coverage of
+       the same ground, not two different things. Scoped with :has()
+       so no JS changes were needed; desktop is untouched entirely. */
+    .app-shell:has(#view-project.is-active) .rail{ display:none; }
+    .app-shell:has(#view-project.is-active) .main-col{
+      padding-bottom:calc(112px + env(safe-area-inset-bottom));
+    }
   }
 
   /* ============================================================
