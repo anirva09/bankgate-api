@@ -138,10 +138,18 @@
   .main-col{padding:28px 28px 60px; min-width:0;}
   @media (min-width:961px){ .main-col{height:calc(100vh - var(--header-h)); height:calc(100dvh - var(--header-h)); overflow-y:auto; -webkit-overflow-scrolling:touch;} }
   @media (max-width:960px){
+    /* .main-col must NOT have its own overflow-y:auto here — the rail
+       (position:static on mobile), scrollToRail/goToOverviewRail (both
+       scroll the window/document directly below this breakpoint), and
+       the tab-bar clearance padding below all assume body is the sole
+       scroll container on mobile. This rule previously gave .main-col
+       a second, competing scrollable region layered under that — the
+       exact pattern already fixed on .rail and .card. min-height:0 is
+       harmless (main-col is a grid item, not a flex child, so it does
+       nothing either way) and is left as-is; only the two properties
+       that actually created a second scroll path are removed. */
     .main-col{
       min-height:0;
-      overflow-y:auto;
-      -webkit-overflow-scrolling:touch;
     }
   }
   @media (max-width:720px){ .main-col{padding:20px 16px 48px;} }
@@ -403,7 +411,7 @@
   .side-panel-head span{font-weight:600; font-size:14px;}
   .side-panel-close{width:30px; height:30px; border-radius:50%; border:1px solid var(--card-border); background:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-secondary);}
   .side-panel-close:hover{background:var(--bg-subtle);}
-  .side-panel-body{padding:22px; overflow-y:auto;}
+  .side-panel-body{padding:22px; overflow-y:auto; flex:1; min-height:0; -webkit-overflow-scrolling:touch;}
   .sp-icon{width:46px; height:46px; border-radius:12px; background:var(--accent-wash); color:var(--accent-dim); display:flex; align-items:center; justify-content:center; margin-bottom:14px;}
   .sp-icon svg{width:24px; height:24px;}
   .sp-title{font-weight:600; font-size:20px; letter-spacing:-0.015em; margin:0 0 4px;}
@@ -694,10 +702,11 @@
      ------------------------------------------------------------ */
   @media (max-width:780px){
     .side-nav{ display:none; }
-    /* Clears the fixed bottom tab bar on mobile — the rail now
-       renders identically on every view, so this padding always
-       has real content sitting above it, not empty space. */
-    .main-col{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
+    /* main-col's own tab-bar clearance now lives in one place only —
+       see the Project & Setup exception below, where the rail is
+       hidden and main-col becomes genuinely last. Everywhere else
+       the rail follows main-col and carries the real clearance
+       itself, so a second copy here was pure dead space. */
     .rail{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
   }
 
@@ -706,11 +715,12 @@
      ------------------------------------------------------------ */
   .mobile-tabbar{ display:none; }
   @media (max-width:780px){
+    header.topbar{ backdrop-filter:blur(8px); background:rgba(255,255,255,0.95); }
     .mobile-tabbar{
       display:flex; align-items:stretch; justify-content:space-around;
       position:fixed; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom));
       z-index:60; padding:6px 4px;
-      background:rgba(255,255,255,0.86); backdrop-filter:blur(20px) saturate(180%);
+      background:rgba(255,255,255,0.92); backdrop-filter:blur(8px);
       border:1px solid var(--card-border);
       border-radius:22px;
       box-shadow:0 18px 40px -14px rgba(20,20,35,0.28), 0 2px 10px rgba(20,20,35,0.06);
@@ -778,7 +788,7 @@
       transition:background .15s ease, transform .12s ease;
     }
     .more-sheet-close:active{ background:var(--card-border); transform:scale(0.94); }
-    .more-sheet-body{ overflow-y:auto; padding:2px 10px 18px; }
+    .more-sheet-body{ overflow-y:auto; padding:2px 10px 18px; flex:1; min-height:0; -webkit-overflow-scrolling:touch; }
     .more-group{ padding:2px 0; }
     .more-group + .more-group{ margin-top:14px; }
     .more-group-label{
@@ -986,12 +996,31 @@
 
   /* ---- Bottom nav can never sit on top of content ---- */
   @media (max-width:780px){
-    /* main-col also needs this clearance directly — it's the last
-       thing on screen whenever the rail is empty/hidden for the
-       active view, not only when the rail follows it. */
-    .main-col{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
+    /* The rail is now always visible after .main-col on every view
+       (see switchView's comment above) — meaning this defensive
+       112px was pure dead space on every single page, not just the
+       one case it was written for. Removing it: .rail (right after
+       it) already carries the real tab-bar clearance. The one
+       exception — Project & Setup, where the rail is now hidden on
+       mobile (see below) — gets its own override so it isn't left
+       without clearance once it becomes the last thing on screen. */
     .rail{ padding-bottom:calc(112px + env(safe-area-inset-bottom)); }
     .more-sheet-body{ padding-bottom:calc(28px + env(safe-area-inset-bottom)); }
+
+    /* Project & Setup is a static reference page. It doesn't need
+       its own copy of the live simulation rail below it — tapping
+       Architecture / Request Trace / Database / Test Lab from here
+       already jumps to Overview first (goToOverviewRail), so the
+       rail being absent here breaks nothing functionally. Showing
+       it anyway put Project & Setup's own architecture-explanation
+       prose immediately before the live Architecture/Trace/
+       Governance/Test cards — which reads as duplicate coverage of
+       the same ground, not two different things. Scoped with :has()
+       so no JS changes were needed; desktop is untouched entirely. */
+    .app-shell:has(#view-project.is-active) .rail{ display:none; }
+    .app-shell:has(#view-project.is-active) .main-col{
+      padding-bottom:calc(112px + env(safe-area-inset-bottom));
+    }
   }
 
   /* ============================================================
@@ -3648,9 +3677,15 @@ function switchView(view){
   // doesn't apply and the whole page scrolls on the window instead, so
   // scrolling only .main-col left you part-way down the previous page.
   // Do both — each is a no-op on the breakpoint where it isn't the
-  // scroller, so this needs no width check.
-  document.querySelector('.main-col').scrollTo({ top:0, behavior:'smooth' });
-  window.scrollTo({ top:0, behavior:'smooth' });
+  // scroller, so this needs no width check for WHICH one to call.
+  // Mobile gets an instant jump rather than the animated smooth scroll —
+  // matching "reset to top immediately" — while desktop keeps the
+  // original smooth animation exactly as it was; this is the same
+  // matchMedia check already used by goToOverviewRail for the same
+  // breakpoint, not a new pattern.
+  const _mobileNav = window.matchMedia('(max-width:960px)').matches;
+  document.querySelector('.main-col').scrollTo({ top:0, behavior: _mobileNav ? 'auto' : 'smooth' });
+  window.scrollTo({ top:0, behavior: _mobileNav ? 'auto' : 'smooth' });
   safeUpdateHash('#view=' + view);
 }
 
