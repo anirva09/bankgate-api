@@ -399,6 +399,20 @@
   .dash-empty{color:var(--text-muted); font-size:13px;}
 
   /* ---------- landing ---------- */
+  /* body-locked: applied only while #landing (position:fixed,
+     overflow-y:auto) is the visible page. Without this, html/body
+     were also technically scrollable (overflow-x:hidden forces
+     overflow-y to resolve to auto per spec), even though they have
+     nothing real to scroll — #landing being position:fixed removes
+     it from body's normal flow entirely. That leaves two competing
+     scrollable regions stacked on the same screen. iOS Safari
+     tends to resolve that toward the one with real content;
+     Android Chrome can latch onto the empty body instead, which
+     looks exactly like "won't scroll down" while every other page
+     (which scrolls the body directly, not a fixed overlay) works
+     fine. Removed the moment enterApp() hides the landing page, so
+     it never touches how the actual console scrolls on mobile. */
+  body.body-locked{ overflow-y:hidden !important; height:100%; }
   #landing{
     position:fixed; inset:0; z-index:200; overflow-y:auto;
     background:
@@ -2738,7 +2752,7 @@
   }
 </style>
 </head>
-<body>
+<body class="body-locked">
 
 <div id="landing">
 
@@ -4567,6 +4581,7 @@ if (lastSubmitted){
    ============================================================ */
 function enterApp(view, railId){
   document.getElementById('landing').style.display = 'none';
+  document.body.classList.remove('body-locked');
   if (view) switchView(view);
   if (railId) setTimeout(() => scrollToRail(railId), 50);
 }
@@ -4861,6 +4876,7 @@ function applyHash(){
   if (!view && !rail) return;
 
   document.getElementById('landing').style.display = 'none';
+  document.body.classList.remove('body-locked');
   if (view && DEEP_LINK_VIEWS.includes(view)) switchView(view);
   if (rail && document.getElementById(rail)) setTimeout(() => scrollToRail(rail), 200);
 }
