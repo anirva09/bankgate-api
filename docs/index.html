@@ -91,12 +91,17 @@
   .app-viewport{
     height:100vh; height:100dvh;
     overflow-y:auto; overflow-x:hidden;
-    -webkit-overflow-scrolling:touch;
     overscroll-behavior-y:contain;
     touch-action:pan-y;
     -ms-overflow-style:none; scrollbar-width:none;
   }
   .app-viewport::-webkit-scrollbar{ width:0; height:0; display:none; }
+  /* Fallback for any Android browser variant that still renders
+     something here despite the rule above: colour it to match the
+     page background so it blends in rather than standing out as a
+     visible grey block, even if it can't be fully suppressed. */
+  .app-viewport::-webkit-scrollbar-track{ background:var(--bg); }
+  .app-viewport::-webkit-scrollbar-thumb{ background:var(--bg); border:none; }
   button, input, select{font-family:inherit; color-scheme:light;}
   :focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
